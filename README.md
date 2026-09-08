@@ -78,13 +78,20 @@ To run the experiment locally:
 
 ```bash
 conda create -n ambiguity-task python=3.10
-
+```
 4. Activate the environment:
+```bash
 conda activate ambiguity-task
+```
+
 5.Install the required packages:
+```bash
 pip install -r requirements.txt
+```
 6. Run the main experiment:
+```bash
 python main.py
+```
 
 Important: The current main experiment runs 5 blocks, with 20 prediction trials per block. To change this, go to urn_params.py and change N_TRIALS_PER_BLOCK and N_BLOCKS
 ## Running the training task
