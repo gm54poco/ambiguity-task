@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# PsychoPy and logs
+*.log
+*.psydat
+
+# Participant data
+data/
+*.csv
+*.xlsx
+
+# IDE files
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+build/
+dist/
+*.spec
