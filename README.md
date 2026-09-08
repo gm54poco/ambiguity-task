@@ -66,6 +66,7 @@ The current development environment uses:
 
 ```text
 Python 3.10.20
+```
 ---
 ## Running the experiment
 
