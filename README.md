@@ -66,3 +66,26 @@ The current development environment uses:
 
 ```text
 Python 3.10.20
+---
+## Running the experiment
+
+To run the experiment locally:
+
+1. Open the repository in **Visual Studio Code**.
+2. Open a terminal in VS Code.
+3. Create a Conda environment with Python 3.10:
+
+```bash
+conda create -n ambiguity-task python=3.10
+
+4. Activate the environment:
+conda activate ambiguity-task
+5.Install the required packages:
+pip install -r requirements.txt
+6. Run the main experiment:
+python main.py
+
+Important: The current main experiment runs 5 blocks, with 20 prediction trials per block. To change this, go to urn_params.py and change N_TRIALS_PER_BLOCK and N_BLOCKS
+## Running the training task
+
+python training_task.py
