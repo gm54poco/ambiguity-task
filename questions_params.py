@@ -17,6 +17,11 @@ LIKERT_KEYS = [
     "3",
     "4",
     "5",
+    "num_1",
+    "num_2",
+    "num_3",
+    "num_4",
+    "num_5",
 ]
 
 
@@ -25,6 +30,10 @@ K_RESPONSE_KEYS = {
     "2": 2,
     "3": 3,
     "4": "not_sure",
+    "num_1": 1,
+    "num_2": 2,
+    "num_3": 3,
+    "num_4": "not_sure",
 }
 
 

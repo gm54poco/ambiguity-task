@@ -104,9 +104,16 @@ def ask_likert_question(
     question_text,
     labels,
 ):
-    """Ask a five-point Likert question using keys 1-5."""
+    """
+    Ask a five-point Likert question.
+
+    The selected response is briefly highlighted before
+    moving to the next question.
+    """
 
     event.clearEvents()
+
+    selected_response = None
 
     while True:
 
@@ -129,6 +136,17 @@ def ask_likert_question(
                 qparams.LIKERT_X_POSITIONS[i]
             )
 
+            # ---------------------------------------------------------
+            # Highlight selected answer
+            # ---------------------------------------------------------
+
+            if selected_response == value:
+                fill_color = "darkgrey"
+                line_width = 3
+            else:
+                fill_color = None
+                line_width = 2
+
             circle = visual.Circle(
                 win=win,
                 radius=qparams.LIKERT_RADIUS,
@@ -136,9 +154,9 @@ def ask_likert_question(
                     x_pos,
                     qparams.LIKERT_Y,
                 ),
-                fillColor=None,
+                fillColor=fill_color,
                 lineColor="black",
-                lineWidth=2,
+                lineWidth=line_width,
             )
 
             number = visual.TextStim(
@@ -183,24 +201,106 @@ def ask_likert_question(
 
         win.flip()
 
-        keys = event.getKeys(
+        keys = event.waitKeys(
             keyList=(
                 qparams.LIKERT_KEYS
                 + ["escape"]
             )
         )
 
-        if "escape" in keys:
+        key = keys[0]
 
+        if key == "escape":
             quit_experiment(
                 win
             )
 
-        for key in qparams.LIKERT_KEYS:
+        # -------------------------------------------------------------
+        # Convert keyboard / numpad response
+        # -------------------------------------------------------------
 
-            if key in keys:
+        if key.startswith("num_"):
+            selected_response = int(
+                key.replace(
+                    "num_",
+                    "",
+                )
+            )
+        else:
+            selected_response = int(key)
 
-                return int(key)
+        # -------------------------------------------------------------
+        # Redraw once with the selected answer highlighted
+        # -------------------------------------------------------------
+
+        question.draw()
+
+        for i, value in enumerate(
+            qparams.LIKERT_VALUES
+        ):
+
+            x_pos = (
+                qparams.LIKERT_X_POSITIONS[i]
+            )
+
+            if selected_response == value:
+                fill_color = "darkgrey"
+                line_width = 3
+            else:
+                fill_color = None
+                line_width = 2
+
+            circle = visual.Circle(
+                win=win,
+                radius=qparams.LIKERT_RADIUS,
+                pos=(
+                    x_pos,
+                    qparams.LIKERT_Y,
+                ),
+                fillColor=fill_color,
+                lineColor="black",
+                lineWidth=line_width,
+            )
+
+            number = visual.TextStim(
+                win=win,
+                text=str(value),
+                pos=(
+                    x_pos,
+                    qparams.LIKERT_Y,
+                ),
+                color="black",
+                height=0.035,
+                bold=True,
+                font="Arial",
+            )
+
+            label = visual.TextStim(
+                win=win,
+                text=labels[i],
+                pos=(
+                    x_pos,
+                    qparams.LABEL_Y,
+                ),
+                color="black",
+                height=qparams.LABEL_HEIGHT,
+                wrapWidth=qparams.LABEL_WRAP_WIDTH,
+                alignText="center",
+                font="Arial",
+            )
+
+            circle.draw()
+            number.draw()
+            label.draw()
+
+        bottom.draw()
+
+        win.flip()
+
+        # Show the selection briefly
+        core.wait(0.2)
+
+        return selected_response
 
 
 # -----------------------------------------------------------------------------
@@ -580,6 +680,10 @@ def run_post_block_questions(
                 "2",
                 "3",
                 "4",
+                "num_1",
+                "num_2",
+                "num_3",
+                "num_4",
             ],
             question_pos=qparams.K_QUESTION_POS,
             question_height=qparams.K_QUESTION_HEIGHT,
@@ -727,6 +831,10 @@ def run_training_questions(
                 "2",
                 "3",
                 "4",
+                "num_1",
+                "num_2",
+                "num_3",
+                "num_4",
             ],
             question_pos=qparams.K_QUESTION_POS,
             question_height=qparams.K_QUESTION_HEIGHT,

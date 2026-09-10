@@ -312,7 +312,7 @@ def run_tas20():
 
             win.flip()
 
-            keys = event.getKeys(keyList=["1", "2", "3", "4", "5", "return", "escape"])
+            keys = event.getKeys(keyList=["1", "2", "3", "4", "5", "return", "escape", "num_1", "num_2", "num_3", "num_4", "num_5"])
 
             if "escape" in keys:
                 win.close()
@@ -324,6 +324,11 @@ def run_tas20():
                         reaction_times[item_id] = rt_clock.getTime()
 
                     selected_response = int(key)
+                elif key in ["num_1", "num_2", "num_3", "num_4", "num_5"]:
+                    if selected_response is None:
+                        reaction_times[item_id] = rt_clock.getTime()
+
+                    selected_response = int(key.replace("num_", ""))
 
                 elif key == "return":
                     if selected_response is not None:
