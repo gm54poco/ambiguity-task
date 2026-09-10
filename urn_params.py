@@ -6,13 +6,13 @@ from pathlib import Path
 # -----------------------------------------------------------------------------
 
 # Number of prediction trials after the initial displayed draws.
-N_TRIALS_PER_BLOCK = 20
+N_TRIALS_PER_BLOCK = 4
 N_BLOCKS = 5
 # -----------------------------------------------------------------------------
 # Monetary rewards
 # -----------------------------------------------------------------------------
 
-REWARD_PER_CORRECT_GUESS = 0.20
+REWARD_PER_CORRECT_GUESS = 4 #if euros: 0.20
 
 MAX_AMBIGUOUS_REWARD = (
     N_TRIALS_PER_BLOCK
@@ -27,13 +27,19 @@ N_INITIAL_DRAWS = 0
 
 
 # The latent rule is followed on exactly this proportion of prediction trials.
-PATTERN_PROBABILITY = 0.80
+PATTERN_PROBABILITY = 0.85 # 3 random
 
 RANDOM_PROBABILITY = (
     1.0 - PATTERN_PROBABILITY
 )
 
-
+N_RANDOM_DRAWS =(
+    N_TRIALS_PER_BLOCK
+    - round(
+        N_TRIALS_PER_BLOCK
+        * PATTERN_PROBABILITY
+    )
+)
 GUESS_KEYS = {
     "b": "blue",
     "m": "magenta",
@@ -56,8 +62,9 @@ BALL_COLORS = [
 ]
 
 
-# For now the experiment uses 2- and 3-cycle rules.
+# For now the experiment uses 1-, 2- and 3-cycle rules.
 AMBIGUOUS_K_OPTIONS = [
+    1,
     2,
     3,
 ]
@@ -142,8 +149,8 @@ LABEL_Y_OFFSET = 0.24
 LABEL_HEIGHT = 0.04
 
 
-LEFT_URN_LABEL = "Urn A"
-RIGHT_URN_LABEL = "Urn B"
+LEFT_URN_LABEL = "LEFT"
+RIGHT_URN_LABEL = "RIGHT"
 
 
 # During prediction trials the selected urn is enlarged and moved down.
@@ -175,17 +182,14 @@ PRETTY_URN_NAMES = [
 TRAINING_INSTRUCTIONS = (
     "Training Phase\n\n"
     "You will now complete 5 practice blocks.\n\n"
-    "Your performance in these blocks "
-    "will NOT affect your final score or earnings.\n\n"
+    "Practice results do not affect your final earnings.\n\n"
     "Press SPACE to begin."
 )
 
 URN_INSTRUCTIONS = (
     "You will play a game in which you will repeatedly draw balls from an urn you have previously chosen.\n\n"
-    "Each urn contains 20 balls that are either blue or magenta.\n\n"
-    "Your draws should mostly follow a sequence, but occasionally "
-    "a random color will come up.\n\n\n\n"#add correct/incorrect explanation here?
-
+    f"Each block has {N_TRIALS_PER_BLOCK} balls that are either blue or magenta.\n"
+    f"Exactly {N_RANDOM_DRAWS} draws are random; the others follow a sequence.\n\n\n\n"
     "Press SPACE to continue."
 )
 
@@ -214,18 +218,40 @@ SELECTED_URN_CONTINUE_TEXT = (
 # Condition-specific trial instructions
 # -----------------------------------------------------------------------------
 
-KNOWN_X_TRIAL_INSTRUCTION = (
-    "The next ball depends on the previous {k} draws.\n"
-    "The exact rule is unknown.\n"
-    "(B = Blue, M = Magenta)"
+# -----------------------------------------------------------------------------
+# Trial instructions
+# -----------------------------------------------------------------------------
+
+# Deterministic urn
+REWARD_LABEL = ("Reward:")
+DETERMINISTIC_REWARD_VALUE = (
+    "{value} points"
+)
+
+RANDOM_BALLS_LABEL = (
+    "Random balls:"
+)
+
+GUESS_KEYS_TEXT = ( 
+    "[B] BLUE            [M] MAGENTA"
 )
 
 
-UNKNOWN_X_TRIAL_INSTRUCTION = (
-    "The next ball depends on previous draws.\n"
-    "You are not told how many previous draws are relevant.\n"
-    "The exact rule is unknown.\n"
-    "(B = Blue, M = Magenta)"
+# Ambiguous urn
+AMBIGUOUS_REWARD_VALUE = (
+    "{reward_per_correct} pts/correct • max {max_reward} pts"
+)
+
+SEQUENCE_LENGTH_LABEL = (
+    "Sequence length:"
+)
+
+KNOWN_SEQUENCE_LENGTH_VALUE = (
+    "{k}"
+)
+
+UNKNOWN_SEQUENCE_LENGTH_VALUE = (
+    "unknown"
 )
 
 
@@ -248,6 +274,11 @@ LIKERT_KEYS = [
     "3",
     "4",
     "5",
+    "num_1",
+    "num_2",
+    "num_3",
+    "num_4",
+    "num_5",
 ]
 
 
@@ -407,3 +438,9 @@ FEEDBACK_SPACING_Y = 0.050
 FEEDBACK_BALL_RADIUS = 0.02
 
 FEEDBACK_BALLS_PER_ROW = 10
+
+#####STAIRCASE PARAMETERS#####
+STAIRCASE_INITIAL_VALUE = 40 #2.00 if in euros
+STAIRCASE_MAX_VALUE = 100 #if euros: 5.00
+STAIRCASE_MIN_VALUE = 20# if euros:1.00
+STAIRCASE_STEP_SIZES =[10,5,2]# if euros [0.50, 0.25, 0.10]
