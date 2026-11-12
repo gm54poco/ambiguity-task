@@ -1,9 +1,15 @@
-from psychopy import visual, event, core, gui
+from psychopy import visual, event, core
 import csv
 import os
 from datetime import datetime
 
 import questionnaire_params as params
+import participant_info
+
+# Set to True when testing: no participant GUI or demographics entry.
+TEST_MODE = True
+TEST_PARTICIPANT_ID = "TEST_101"
+
 
 
 def reverse_score(response):
@@ -43,46 +49,22 @@ def draw_text(win, text, pos, height=0.05, wrap_width=1.4, bold=False):
     )
 
 
-def create_button(win, text, pos, size=(0.28, 0.14), selected=False):
-    fill_color = "lightgrey" if not selected else "darkgrey"
+def create_likert_scale(win):
+    """Match the post-block questionnaire: ticks and a rectangular marker."""
+    x_positions = [-0.40, -0.20, 0.0, 0.20, 0.40]
+    scale_y = -0.06
+    label_y = -0.17
+    number_y = scale_y + 0.085
+    tick_height = 0.055
+    marker_width = 0.025
+    marker_height = 0.075
 
-    rect = visual.Rect(
+    scale_line = visual.Line(
         win=win,
-        width=size[0],
-        height=size[1],
-        pos=pos,
-        fillColor=fill_color,
+        start=(x_positions[0], scale_y),
+        end=(x_positions[-1], scale_y),
         lineColor="black",
-        lineWidth=2
-    )
-
-    label = visual.TextStim(
-        win=win,
-        text=text,
-        pos=pos,
-        color="black",
-        height=0.035,
-        wrapWidth=size[0] * 0.9,
-        font="Arial"
-    )
-
-    return rect, label
-
-
-def create_likert_scale(win, selected_response=None):
-    scale_items = []
-
-    x_positions = [-0.50, -0.25, 0.0, 0.25, 0.50]
-    y_circle = -0.15
-    y_label = -0.25
-    y_number = -0.08
-
-    line = visual.Line(
-        win=win,
-        start=(x_positions[0], y_circle),
-        end=(x_positions[-1], y_circle),
-        lineColor="black",
-        lineWidth=2
+        lineWidth=2,
     )
 
     labels = [
@@ -90,59 +72,46 @@ def create_likert_scale(win, selected_response=None):
         "Disagree",
         "Neither agree\nnor disagree",
         "Agree",
-        "Strongly\nagree"
+        "Strongly\nagree",
     ]
 
-    for value, x_pos, label_text in zip([1, 2, 3, 4, 5], x_positions, labels):
-        selected = selected_response == value
-
-        circle = visual.Circle(
+    scale_items = []
+    for value, x_pos, label_text in zip(range(1, 6), x_positions, labels):
+        tick = visual.Line(
             win=win,
-            radius=0.025,
-            pos=(x_pos, y_circle),
-            fillColor="darkgrey" if selected else "white",
+            start=(x_pos, scale_y - tick_height / 2),
+            end=(x_pos, scale_y + tick_height / 2),
             lineColor="black",
-            lineWidth=2
+            lineWidth=2,
         )
-
         number = visual.TextStim(
-            win=win,
-            text=str(value),
-            pos=(x_pos, y_number),
-            color="black",
-            height=0.035,
-            font="Arial"
+            win=win, text=str(value), pos=(x_pos, number_y),
+            color="black", height=0.032, bold=True, font="Arial",
         )
-
         label = visual.TextStim(
-            win=win,
-            text=label_text,
-            pos=(x_pos, y_label),
-            color="black",
-            height=0.025,
-            wrapWidth=0.20,
-            font="Arial"
+            win=win, text=label_text, pos=(x_pos, label_y),
+            color="black", height=0.026, wrapWidth=0.16, font="Arial",
         )
+        scale_items.append({"value": value, "tick": tick,
+                            "number": number, "label": label})
 
-        scale_items.append({
-            "value": value,
-            "circle": circle,
-            "number": number,
-            "label": label
-        })
-
-    return line, scale_items
+    selection_marker = visual.Rect(
+        win=win, width=marker_width, height=marker_height,
+        pos=(0, scale_y), fillColor="white", lineColor="black", lineWidth=2,
+    )
+    return scale_line, scale_items, selection_marker, x_positions, scale_y
 
 
 def save_results(participant_id, responses_raw, responses_scored, reaction_times,
                  subscale_scores, total_score, classification):
 
-    if not os.path.exists(params.DATA_FOLDER):
-        os.makedirs(params.DATA_FOLDER)
+    # Organize the output by participant: data/<participant_id>/TAS20_...csv
+    participant_folder = participant_info.DATA_DIR / str(participant_id)
+    participant_folder.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"TAS20_{participant_id}_{timestamp}.csv"
-    filepath = os.path.join(params.DATA_FOLDER, filename)
+    filepath = participant_folder / filename
 
     with open(filepath, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
@@ -180,225 +149,183 @@ def save_results(participant_id, responses_raw, responses_scored, reaction_times
     return filepath
 
 
-def run_tas20():
-    info = {
-        "participant_id": "",
-        "age": "",
-        "gender": ""
-    }
+def run_tas20(participant=None, win=None, test_mode=None):
+    """Run TAS-20 with an existing participant, or collect information once.
 
-    dialog = gui.DlgFromDict(
-        dictionary=info,
-        title="Participant Information"
+    When TEST_MODE=True, skip the GUI and use TEST_PARTICIPANT_ID.
+    When participant is supplied by main.py, reuse that participant ID.
+    Otherwise, collect and save demographics using participant_info.py.
+    """
+    if test_mode is None:
+        test_mode = bool(participant.get("test_run", False)) if participant is not None else TEST_MODE
+    if participant is not None:
+        participant_id = str(participant["participant_id"])
+    elif test_mode:
+        participant_id = TEST_PARTICIPANT_ID
+    else:
+        participant = participant_info.collect_participant_info()
+        participant_info.save_participant_info(participant)
+        participant_id = participant["participant_id"]
+
+    owns_window = win is None
+    if owns_window:
+        win = visual.Window(
+            size=params.WINDOW_SIZE,
+            fullscr=params.FULLSCREEN,
+            color=params.BACKGROUND_COLOR,
+            units="height",
+            gammaErrorPolicy="warn",
+        )
+    title = draw_text(
+        win,
+        text="TAS20 Questionnaire",
+        pos=(0, 0.24),
+        height=0.048,
+        wrap_width=1.36
     )
-
-    if not dialog.OK:
-        core.quit()
-
-    participant_id = info["participant_id"].strip()
-
-    if participant_id == "":
-        participant_id = "anonymous"
-
-    win = visual.Window(
-        size=params.WINDOW_SIZE,
-        fullscr=params.FULLSCREEN,
-        color=params.BACKGROUND_COLOR,
-        units="height"
-    )
-
-    mouse = event.Mouse(win=win)
-
     instructions = draw_text(
         win,
         text=(
             "You will now answer a short questionnaire.\n\n"
             "For each statement, choose how much you agree or disagree.\n\n"
-            "You can respond by clicking one of the circles or by pressing keys 1-5.\n\n"
+            "Use the number row or numpad (1-5) to answer.\nPress SPACE to continue after selecting an answer.\n\n"
             "Press SPACE to begin."
         ),
-        pos=(0, 0.1),
-        height=0.045,
-        wrap_width=1.3
+        pos=(0, 0.015),
+        height=0.034,
+        wrap_width=1.36
     )
 
+    title.draw()
     instructions.draw()
     win.flip()
 
     keys = event.waitKeys(keyList=["space", "escape"])
     if "escape" in keys:
-        win.close()
-        core.quit()
+        raise KeyboardInterrupt("TAS-20 interrupted")
 
     responses_raw = {}
     responses_scored = {}
     reaction_times = {}
 
     for item_index, item in enumerate(params.TAS20_ITEMS):
-
         item_id = item["id"]
-        item_text = item["text"]
-
         selected_response = None
-        rt_clock = core.Clock()
-        rt_clock.reset()
 
-        while True:
-            progress_text = draw_text(
-                win,
-                text=f"Question {item_index + 1} of {len(params.TAS20_ITEMS)}",
-                pos=(0, 0.42),
-                height=0.035,
-                bold=True
-            )
+        # Create visual objects only once for each question.
+        progress_text = draw_text(
+            win, f"Question {item_index + 1} of {len(params.TAS20_ITEMS)}",
+            (0, 0.42), height=0.035, bold=True
+        )
+        question_text = draw_text(
+            win, item["text"], (0, 0.20), height=0.05, wrap_width=1.4
+        )
+        scale_line, scale_items, selection_marker, x_positions, scale_y = create_likert_scale(win)
+        warning_text = draw_text(
+            win, "", (0, -0.34), height=0.03
+        )
 
-            question_text = draw_text(
-                win,
-                text=item_text,
-                pos=(0, 0.20),
-                height=0.05,
-                wrap_width=1.4
-            )
-
-            instruction_text = draw_text(
-                win,
-                text="Choose one option:",
-                pos=(0, 0.02),
-                height=0.035
-            )
-
-            scale_line, scale_items = create_likert_scale(
-                win=win,
-                selected_response=selected_response
-            )
-
-            next_rect, next_label = create_button(
-                win=win,
-                text="Next",
-                pos=(0.48, -0.40),
-                size=(0.22, 0.09),
-                selected=False
-            )
-
-            if selected_response is None:
-                warning_text = draw_text(
-                    win,
-                    text="",
-                    pos=(0, -0.34),
-                    height=0.03
-                )
-            else:
-                warning_text = draw_text(
-                    win,
-                    text="Press ENTER or click Next to continue.",
-                    pos=(0, -0.34),
-                    height=0.03
-                )
-
+        def draw_question():
             progress_text.draw()
             question_text.draw()
-            instruction_text.draw()
-
             scale_line.draw()
-
             for scale_item in scale_items:
-                scale_item["circle"].draw()
+                scale_item["tick"].draw()
                 scale_item["number"].draw()
                 scale_item["label"].draw()
-
+            if selected_response is not None:
+                selection_marker.pos = (x_positions[selected_response - 1], scale_y)
+                selection_marker.draw()
             warning_text.draw()
-            next_rect.draw()
-            next_label.draw()
-
             win.flip()
 
-            keys = event.getKeys(keyList=["1", "2", "3", "4", "5", "return", "escape", "num_1", "num_2", "num_3", "num_4", "num_5"])
+        event.clearEvents()
+        response_clock = core.Clock()
+        # Time the response from when the question first appears.
+        win.callOnFlip(response_clock.reset)
+        draw_question()
 
+        while True:
+            changed = False
+            advance = False
+            keys = event.getKeys(keyList=[
+                "1", "2", "3", "4", "5", "space", "escape",
+                "num_1", "num_2", "num_3", "num_4", "num_5"
+            ])
             if "escape" in keys:
-                win.close()
-                core.quit()
+                raise KeyboardInterrupt("TAS-20 interrupted")
 
             for key in keys:
-                if key in ["1", "2", "3", "4", "5"]:
+                if key in ("1", "2", "3", "4", "5") or key in (
+                    "num_1", "num_2", "num_3", "num_4", "num_5"
+                ):
+                    value = int(key.replace("num_", ""))
                     if selected_response is None:
-                        reaction_times[item_id] = rt_clock.getTime()
+                        reaction_times[item_id] = response_clock.getTime()
+                    if selected_response != value:
+                        selected_response = value
+                        changed = True
+                elif key == "space" and selected_response is not None:
+                    advance = True
 
-                    selected_response = int(key)
-                elif key in ["num_1", "num_2", "num_3", "num_4", "num_5"]:
-                    if selected_response is None:
-                        reaction_times[item_id] = rt_clock.getTime()
-
-                    selected_response = int(key.replace("num_", ""))
-
-                elif key == "return":
-                    if selected_response is not None:
-                        break
-
-            if selected_response is not None and "return" in keys:
+            if advance:
                 break
 
-            if mouse.getPressed()[0]:
-                for scale_item in scale_items:
-                    if scale_item["circle"].contains(mouse):
-                        if selected_response is None:
-                            reaction_times[item_id] = rt_clock.getTime()
-
-                        selected_response = scale_item["value"]
-                        core.wait(0.1)
-
-                if next_rect.contains(mouse) and selected_response is not None:
-                    core.wait(0.1)
-                    break
+            if changed:
+                warning_text.text = "Press SPACE to continue."
+                draw_question()
+            else:
+                # Avoid a busy loop while waiting for an answer.
+                core.wait(0.01)
 
         responses_raw[item_id] = selected_response
-
-        if item["reverse"]:
-            responses_scored[item_id] = reverse_score(selected_response)
-        else:
-            responses_scored[item_id] = selected_response
-
+        responses_scored[item_id] = (
+            reverse_score(selected_response) if item["reverse"]
+            else selected_response
+        )
         if item_id not in reaction_times:
-            reaction_times[item_id] = rt_clock.getTime()
+            reaction_times[item_id] = response_clock.getTime()
 
     total_score = sum(responses_scored.values())
     subscale_scores = calculate_subscale_scores(responses_scored)
     classification = classify_tas20(total_score)
 
-    filepath = save_results(
-        participant_id=participant_id,
-        responses_raw=responses_raw,
-        responses_scored=responses_scored,
-        reaction_times=reaction_times,
-        subscale_scores=subscale_scores,
-        total_score=total_score,
-        classification=classification
-    )
+    if test_mode:
+        filepath = None
+        print("TEST MODE — TAS-20 responses not saved:")
+        print({"participant_id": participant_id,
+               "responses_raw": responses_raw,
+               "reaction_times": reaction_times,
+               "total_score": total_score,
+               "subscale_scores": subscale_scores,
+               "classification": classification})
+    else:
+        filepath = save_results(
+            participant_id=participant_id,
+            responses_raw=responses_raw,
+            responses_scored=responses_scored,
+            reaction_times=reaction_times,
+            subscale_scores=subscale_scores,
+            total_score=total_score,
+            classification=classification,
+        )
+        print(f"TAS-20 results saved to: {filepath}")
 
-    end_text = draw_text(
-        win,
-        text=(
-            "Thank you.\n\n"
-            "The questionnaire is complete.\n\n"
-            "Press SPACE to finish."
-        ),
-        pos=(0, 0.1),
-        height=0.05,
-        wrap_width=1.2
-    )
-
-    end_text.draw()
-    win.flip()
-
-    keys = event.waitKeys(keyList=["space", "escape"])
-    if "escape" in keys:
+    # When run by main.py, hand the existing window back for its final screen.
+    if owns_window:
         win.close()
-        core.quit()
 
-    print(f"Data saved to: {filepath}")
-
-    win.close()
-    core.quit()
+    return {
+        "participant_id": participant_id,
+        "total_score": total_score,
+        "subscale_scores": subscale_scores,
+        "classification": classification,
+        "output_file": str(filepath) if filepath is not None else None,
+    }
 
 
 if __name__ == "__main__":
-    run_tas20()
+    try:
+        run_tas20()
+    except KeyboardInterrupt:
+        print("TAS-20 interrupted.")

@@ -29,11 +29,9 @@ K_RESPONSE_KEYS = {
     "1": 1,
     "2": 2,
     "3": 3,
-    "4": "not_sure",
     "num_1": 1,
     "num_2": 2,
     "num_3": 3,
-    "num_4": "not_sure",
 }
 
 
@@ -42,9 +40,7 @@ K_RESPONSE_KEYS = {
 # -----------------------------------------------------------------------------
 
 K_QUESTION = (
-    "How many previous draws do you think were relevant?\n\n"
-    "Press 1, 2, or 3.\n"
-    "Press 4 if you are not sure."
+    "What is the length of the sequence?\n\n"
 )
 
 
@@ -63,7 +59,7 @@ K_QUESTION_WRAP_WIDTH = 1.10
 # -----------------------------------------------------------------------------
 
 CYCLE_QUESTION = (
-    "What was the hidden sequence?"
+    "What was the sequence?"
 )
 
 
@@ -91,9 +87,9 @@ CYCLE_QUESTION_HEIGHT = 0.040
 CYCLE_QUESTION_WRAP_WIDTH = 1.20
 
 
-CYCLE_BALL_Y = 0.03
+CYCLE_BALL_Y = 0.02
 
-CYCLE_BALL_RADIUS = 0.045
+CYCLE_BALL_RADIUS = 0.04
 
 CYCLE_BALL_SPACING = 0.12
 

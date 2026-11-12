@@ -1,3526 +1,849 @@
-from psychopy import visual, event, core
+"""Main urn task: practice-style graphics, one shared fixed-stage staircase.
+
+Works with training_task.py's public calls: assign_urns_to_sides,
+animate_selected_urn_transition, draw_sequence_feedback, etc.
+Post-block questions are supplied by the existing questions_task.py.
+"""
+
+import math
 import random
+from psychopy import visual, event, core
 
 import urn_params as params
 from questions_task import run_post_block_questions
 
-
-# -----------------------------------------------------------------------------
-# General drawing helpers
-# -----------------------------------------------------------------------------
+_VISUAL_CACHE = {}
 
 
-def draw_text(
-    win,
-    text,
-    pos,
-    height=0.05,
-    wrap_width=1.4,
-    bold=False,
-    color=None,
-    align_text="center",
-):
-    """Create a standard text stimulus."""
-
-    return visual.TextStim(
-        win=win,
-        text=text,
-        pos=pos,
-        color=(
-            params.TEXT_COLOR
-            if color is None
-            else color
-        ),
-        height=height,
-        wrapWidth=wrap_width,
-        bold=bold,
-        alignText=align_text,
-        font="Arial",
-    )
+def _cached(win, key, factory):
+    full_key = (id(win), key)
+    if full_key not in _VISUAL_CACHE:
+        _VISUAL_CACHE[full_key] = factory()
+    return _VISUAL_CACHE[full_key]
 
 
-def get_urn_image_path(
-    urn_name,
-    state,
-):
-    """Return the path to a pretty-urn image."""
-
-    if state not in {
-        "closed",
-        "opened",
-    }:
-
-        raise ValueError(
-            "state must be 'closed' or 'opened'"
-        )
-
-    return str(
-        params.PRETTY_URNS_DIR
-        / f"{urn_name}_{state}.png"
-    )
+def _clear_visual_cache(win):
+    ident = id(win)
+    for key in [k for k in _VISUAL_CACHE if k[0] == ident]:
+        del _VISUAL_CACHE[key]
 
 
-def create_image_urn(
-    win,
-    pos,
-    label_text,
-    image_path,
-    size=None,
-    show_label=True,
-    bottom_text=None,
-):
-    """Create an urn image, with an optional label above and text below."""
+def draw_text(win, text, pos, height=0.05, wrap_width=1.4,
+              bold=False, color=None, align_text="center"):
+    text = str(text)
+    key = ("text", text, tuple(pos), height, wrap_width, bold, color, align_text)
+    return _cached(win, key, lambda: visual.TextStim(
+        win=win, text=text, pos=pos, height=height, wrapWidth=wrap_width,
+        bold=bold, color=params.TEXT_COLOR if color is None else color,
+        alignText=align_text, anchorHoriz=align_text, font="Arial"))
 
-    urn_size = (
-        params.URN_IMAGE_SIZE
-        if size is None
-        else size
-    )
 
-    urn_image = visual.ImageStim(
-        win=win,
-        image=image_path,
-        pos=pos,
-        size=urn_size,
-    )
+def _image(win, image_path, pos, size):
+    path = str(image_path)
+    size = tuple(size)
+    stim = _cached(win, ("image", path, size),
+                   lambda: visual.ImageStim(win=win, image=path, size=size))
+    stim.pos = pos
+    return stim
 
-    parts = [urn_image]
 
+def get_urn_image_path(urn_name, state):
+    if state not in ("closed", "opened"):
+        raise ValueError("state must be 'closed' or 'opened'")
+    return str(params.PRETTY_URNS_DIR / f"{urn_name}_{state}.png")
+
+
+def create_image_urn(win, pos, label_text, image_path, size=None,
+                     show_label=True, bottom_text=None):
+    size = params.URN_IMAGE_SIZE if size is None else size
+    parts = [_image(win, image_path, pos, size)]
     if show_label:
-        label_y_offset = urn_size[1] / 2 + 0.07
-
-        label = visual.TextStim(
-            win=win,
-            text=label_text,
-            pos=(
-                pos[0],
-                pos[1] + label_y_offset,
-            ),
-            color=params.TEXT_COLOR,
-            height=params.LABEL_HEIGHT,
-            bold=True,
-            font="Arial",
-        )
-
-        parts.append(label)
-
+        parts.append(draw_text(win, label_text,
+                               (pos[0], pos[1] + size[1] / 2 + 0.07),
+                               height=params.LABEL_HEIGHT, bold=True))
     if bottom_text is not None:
-        bottom_y_offset = urn_size[1] / 2 + 0.06
-
-        response = visual.TextStim(
-            win=win,
-            text=bottom_text,
-            pos=(
-                pos[0],
-                pos[1] - bottom_y_offset,
-            ),
-            color=params.TEXT_COLOR,
-            height=0.028,
-            bold=True,
-            font="Arial",
-        )
-
-        parts.append(response)
-
+        parts.append(draw_text(win, bottom_text,
+                               (pos[0], pos[1] - size[1] / 2 - 0.06),
+                               height=0.028, bold=True))
     return parts
 
-def draw_selected_open_urn(
-    win,
-    selected_urn,
-):
-    """
-    Draw the selected urn in its opened state
-    at the prediction-trial position.
-    """
-
-    urn_display = create_image_urn(
-        win=win,
-        pos=params.SELECTED_URN_POS,
-        label_text=selected_urn["label"],
-        image_path=selected_urn["opened_image"],
-        size=params.SELECTED_URN_SIZE,
-        show_label=False,
-    )
-
-    draw_all(urn_display)
 
 def draw_all(parts):
-    """Draw all stimuli in a list."""
+    for stimulus in parts:
+        stimulus.draw()
 
-    for part in parts:
 
-        part.draw()
+def draw_selected_open_urn(win, selected_urn):
+    _image(win, selected_urn["opened_image"],
+           params.SELECTED_URN_POS, params.SELECTED_URN_SIZE).draw()
 
 
 def quit_experiment(win):
-    """Close the window and terminate the experiment."""
-
     win.close()
-
     core.quit()
 
 
 # -----------------------------------------------------------------------------
-# k-cycle generation
+# Latent pattern, urn assignments, and outcome generation.
 # -----------------------------------------------------------------------------
 
-
 def has_smaller_period(sequence):
-    """
-    Return True if the sequence is actually generated
-    by a shorter repeating period.
-    """
-
-    n = len(
-        sequence
-    )
-
-    for period in range(
-        1,
-        n,
-    ):
-
-        if n % period != 0:
-
-            continue
-
-        matches = True
-
-        for i in range(n):
-
-            if (
-                sequence[i]
-                != sequence[
-                    i % period
-                ]
-            ):
-
-                matches = False
-
-                break
-
-        if matches:
-
+    n = len(sequence)
+    for period in range(1, n):
+        if n % period == 0 and all(sequence[i] == sequence[i % period]
+                                    for i in range(n)):
             return True
-
     return False
 
 
 def generate_k_cycle(k):
-    """Generate a genuine cycle of length k."""
-
+    if k not in params.AMBIGUOUS_K_OPTIONS:
+        raise ValueError(f"Unsupported k={k}")
     while True:
-
-        cycle = [
-            random.choice(
-                params.BALL_COLORS
-            )
-            for _ in range(k)
-        ]
-
-        if not has_smaller_period(
-            cycle
-        ):
-
+        cycle = [random.choice(params.BALL_COLORS) for _ in range(k)]
+        if not has_smaller_period(cycle):
             return cycle
 
 
 def serialise_cycle(cycle):
-    """Convert a cycle to a readable string."""
-
-    return "-".join(cycle)
+    return "-".join(cycle) if cycle is not None else ""
 
 
-def cycles_match(
-    true_cycle,
-    response_cycle,
-):
-    """
-    Check whether two cycles are equivalent up to rotation.
-
-    Example:
-
-        B B M
-        B M B
-        M B B
-
-    all represent the same repeating 3-cycle.
-    """
-
-    if len(true_cycle) != len(
-        response_cycle
-    ):
-
+def cycles_match(true_cycle, response_cycle):
+    """Cyclic rotations are equivalent reconstructions."""
+    if not true_cycle or not response_cycle or len(true_cycle) != len(response_cycle):
         return False
-
-    doubled = (
-        true_cycle
-        + true_cycle
-    )
-
-    k = len(
-        true_cycle
-    )
-
-    for start in range(k):
-
-        rotation = (
-            doubled[
-                start:
-                start + k
-            ]
-        )
-
-        if rotation == response_cycle:
-
-            return True
-
-    return False
+    doubled = list(true_cycle) + list(true_cycle)
+    return any(doubled[i:i + len(true_cycle)] == list(response_cycle)
+               for i in range(len(true_cycle)))
 
 
-def generate_latent_sequence(
-    cycle,
-    n_draws,
-):
-    """
-    Generate a specified number of clean observations
-    from the latent cycle.
-
-    Example:
-
-        cycle = [blue, blue, magenta]
-        n_draws = 7
-
-    gives:
-
-        blue
-        blue
-        magenta
-        blue
-        blue
-        magenta
-        blue
-    """
-
-    k = len(
-        cycle
-    )
-
-    return [
-        cycle[i % k]
-        for i in range(
-            n_draws
-        )
-    ]
-
-# -----------------------------------------------------------------------------
-# Urn conditions
-# -----------------------------------------------------------------------------
-
-def create_ambiguous_urn(
-    urn_name,
-    label,
-    ambiguous_condition,
-    k,
-):
-    """
-    Create one ambiguous urn.
-
-    ambiguous_condition must be:
-        "known"
-        or
-        "unknown"
-    """
-
-    cycle = generate_k_cycle(
-        k
-    )
-
-    if ambiguous_condition == "known":
-
-        return {
-            "urn_type": "ambiguous",
-            "urn_name": urn_name,
-            "label": label,
-
-            "closed_image": get_urn_image_path(
-                urn_name,
-                "closed",
-            ),
-
-            "opened_image": get_urn_image_path(
-                urn_name,
-                "opened",
-            ),
-
-            "condition": (
-                params.CONDITION_KNOWN_X_UNKNOWN_F
-            ),
-
-            "condition_description": (
-                params.KNOWN_X_DESCRIPTION
-            ),
-
-            "participant_knows_k": True,
-
-            "ambiguous_k": k,
-            "cycle": cycle,
-
-            # Money depends on performance
-            "payoff_type": "performance",
-            "value": None,
-        }
-
-    elif ambiguous_condition == "unknown":
-
-        return {
-            "urn_type": "ambiguous",
-            "urn_name": urn_name,
-            "label": label,
-
-            "closed_image": get_urn_image_path(
-                urn_name,
-                "closed",
-            ),
-
-            "opened_image": get_urn_image_path(
-                urn_name,
-                "opened",
-            ),
-
-            "condition": (
-                params.CONDITION_UNKNOWN_X_UNKNOWN_F
-            ),
-
-            "condition_description": (
-                params.UNKNOWN_X_DESCRIPTION
-            ),
-
-            "participant_knows_k": False,
-
-            "ambiguous_k": k,
-            "cycle": cycle,
-
-            "payoff_type": "performance",
-            "value": None,
-        }
-
-    raise ValueError(
-        "ambiguous_condition must be 'known' or 'unknown'"
-    )
+def generate_latent_sequence(cycle, n_draws):
+    return [cycle[i % len(cycle)] for i in range(n_draws)]
 
 
-def create_deterministic_urn(
-    urn_name,
-    label,
-    value,
-):
-    """
-    Create the sure-value urn.
-
-    The participant can still play prediction trials,
-    but its monetary payoff is fixed and does not
-    increase as a result of correct predictions.
-    """
-
-    # Give it a sequence so that it remains playable.
-    #
-    # You can change this later if the deterministic
-    # urn should use a different sequence-generating rule.
-    k = random.choice(
-        params.AMBIGUOUS_K_OPTIONS
-    )
-
-    cycle = generate_k_cycle(
-        k
-    )
-
+def _make_urn(urn_name, label, kind, condition, k, cycle, value=None):
     return {
-        "urn_type": "deterministic",
+        "urn_type": kind,
         "urn_name": urn_name,
         "label": label,
-
-        "closed_image": get_urn_image_path(
-            urn_name,
-            "closed",
-        ),
-
-        "opened_image": get_urn_image_path(
-            urn_name,
-            "opened",
-        ),
-
-        "condition": "deterministic",
-
-        "condition_description": (
-            f"Fixed value: {value:.2f} points"
-        ),
-
-        # These allow the existing prediction-game
-        # functions to work without crashing.
-        "participant_knows_k": True,
+        "closed_image": get_urn_image_path(urn_name, "closed"),
+        "opened_image": get_urn_image_path(urn_name, "opened"),
+        "condition": (params.CONDITION_KNOWN_X_UNKNOWN_F if condition == "known"
+                      else params.CONDITION_UNKNOWN_X_UNKNOWN_F),
+        "condition_description": (params.KNOWN_X_DESCRIPTION if condition == "known"
+                                  else params.UNKNOWN_X_DESCRIPTION),
+        "participant_knows_k": condition == "known",
         "ambiguous_k": k,
-        "cycle": cycle,
-
-        # Important distinction
-        "payoff_type": "fixed",
+        "cycle": list(cycle),
+        "payoff_type": "performance" if kind == "ambiguous" else "fixed",
         "value": value,
     }
 
 
-def assign_urns_to_sides(
-    deterministic_value,
-    ambiguous_condition,
-    k,
-):
-    """Pair one deterministic and one ambiguous urn."""
+def create_ambiguous_urn(urn_name, label, ambiguous_condition, k, cycle=None):
+    if ambiguous_condition not in ("known", "unknown"):
+        raise ValueError("unknown condition")
+    if cycle is None:
+        cycle = generate_k_cycle(k)
+    return _make_urn(urn_name, label, "ambiguous", ambiguous_condition, k, cycle)
 
-    urn_names = random.sample(
-        params.PRETTY_URN_NAMES,
-        2,
-    )
 
-    deterministic_side = random.choice(
-        ["left", "right"]
-    )
+def create_deterministic_urn(urn_name, label, value, k=None,
+                             ambiguous_condition="known", cycle=None):
+    if k is None:
+        k = random.choice(params.AMBIGUOUS_K_OPTIONS)
+    if ambiguous_condition not in ("known", "unknown"):
+        raise ValueError("unknown condition")
+    if cycle is None:
+        cycle = generate_k_cycle(k)
+    return _make_urn(urn_name, label, "deterministic", ambiguous_condition,
+                     k, cycle, value=value)
 
-    ambiguous_side = (
-        "right"
-        if deterministic_side == "left"
-        else "left"
-    )
 
-    side_labels = {
-        "left": params.LEFT_URN_LABEL,
-        "right": params.RIGHT_URN_LABEL,
+def assign_urns_to_sides(deterministic_value, ambiguous_condition, k):
+    """The two urns have the same task parameters; only payoff differs."""
+    names = random.sample(params.PRETTY_URN_NAMES, 2)
+    deterministic_side = random.choice(("left", "right"))
+    ambiguous_side = "right" if deterministic_side == "left" else "left"
+    sides = {"left": names[0], "right": names[1]}
+    labels = {"left": params.LEFT_URN_LABEL, "right": params.RIGHT_URN_LABEL}
+    common_cycle = generate_k_cycle(k)
+    return {
+        deterministic_side: create_deterministic_urn(
+            sides[deterministic_side], labels[deterministic_side],
+            deterministic_value, k=k, ambiguous_condition=ambiguous_condition,
+            cycle=common_cycle),
+        ambiguous_side: create_ambiguous_urn(
+            sides[ambiguous_side], labels[ambiguous_side],
+            ambiguous_condition, k, cycle=common_cycle),
     }
 
-    side_names = {
-        "left": urn_names[0],
-        "right": urn_names[1],
-    }
 
-    assignment = {}
-
-    assignment[deterministic_side] = (
-        create_deterministic_urn(
-            urn_name=side_names[
-                deterministic_side
-            ],
-            label=side_labels[
-                deterministic_side
-            ],
-            value=deterministic_value,
-        )
-    )
-
-    assignment[ambiguous_side] = (
-        create_ambiguous_urn(
-            urn_name=side_names[
-                ambiguous_side
-            ],
-            label=side_labels[
-                ambiguous_side
-            ],
-            ambiguous_condition=ambiguous_condition,
-            k=k,
-        )
-    )
-
-    return assignment
-
-# -----------------------------------------------------------------------------
-# Selection screen
-# -----------------------------------------------------------------------------
-
-
-def draw_selection_condition_text(
-    win,
-    urn,
-    x_pos,
-):
-    """Draw condition/value information below an urn."""
-
-    if urn["urn_type"] == "deterministic":
-
-        condition_text = (
-            f"Fixed value: {urn['value']:.2f} points\n\n"
-            "Number of correct answers do not change this amount."
-        )
-
-    else:
-
-        if urn["participant_knows_k"]:
-            info_text = (
-                urn["condition_description"].format(
-                    k=urn["ambiguous_k"]
-                )
-            )
-        else:
-            info_text = urn["condition_description"]
-
-        condition_text = (
-            f"{info_text}\n\n"
-            f"Earn {params.REWARD_PER_CORRECT_GUESS:.2f} "
-            "points for each correct answer.\n"
-            f"Maximum: {params.MAX_AMBIGUOUS_REWARD:.2f} points"
-        )
-
-    text_stim = draw_text(
-        win=win,
-        text=condition_text,
-        pos=(
-            x_pos,
-            params.CONDITION_TEXT_Y,
-        ),
-        height=params.CONDITION_TEXT_HEIGHT,
-        wrap_width=params.CONDITION_TEXT_WRAP_WIDTH,
-    )
-
-    text_stim.draw()
-
-
-def collect_urn_choice(
-    win,
-    urn_assignment,
-):
-    """Select left or right urn using the arrow keys."""
-
-    event.clearEvents()
-
-    while True:
-
-        title = draw_text(
-            win=win,
-            text=params.SELECT_INSTRUCTIONS,
-            pos=(
-                0,
-                0.40,
-            ),
-            height=0.047,
-            bold=True,
-        )
-
-        choice_instruction = draw_text(
-            win=win,
-            text="Press ⇦ for LEFT or ⇨ for RIGHT.",
-            pos=(
-                0,
-                0.31,
-            ),
-            height=0.028,
-            bold=False,
-        )
-
-        left_display = create_image_urn(
-            win=win,
-            pos=params.URN_LEFT_POS,
-            label_text=urn_assignment["left"]["label"],
-            image_path=urn_assignment["left"]["closed_image"],
-            bottom_text=None,
-        )
-
-        right_display = create_image_urn(
-            win=win,
-            pos=params.URN_RIGHT_POS,
-            label_text=urn_assignment["right"]["label"],
-            image_path=urn_assignment["right"]["closed_image"],
-            bottom_text=None,
-        )
-
-        bottom_text = draw_text(
-            win=win,
-            text=params.SELECTION_BOTTOM_TEXT,
-            pos=(
-                0,
-                -0.45,
-            ),
-            height=0.024,
-        )
-
-        title.draw()
-        choice_instruction.draw()
-
-        draw_all(left_display)
-        draw_all(right_display)
-
-        draw_selection_condition_text(
-            win=win,
-            urn=urn_assignment["left"],
-            x_pos=params.URN_LEFT_POS[0],
-        )
-
-        draw_selection_condition_text(
-            win=win,
-            urn=urn_assignment["right"],
-            x_pos=params.URN_RIGHT_POS[0],
-        )
-
-        bottom_text.draw()
-
-        win.flip()
-
-        keys = event.waitKeys(
-            keyList=[
-                "left",
-                "right",
-                "escape",
-            ]
-        )
-
-        if "escape" in keys:
-            quit_experiment(win)
-
-        if "left" in keys:
-            return "left"
-
-        if "right" in keys:
-            return "right"
-
-
-# -----------------------------------------------------------------------------
-# Noise schedule
-# -----------------------------------------------------------------------------
-
-
-def create_noise_schedule(
-    n_trials,
-    pattern_probability,
-):
-    """
-    Create an exact randomly shuffled noise schedule.
-
-    With 20 trials and p=.80 this gives:
-        16 rule-consistent trials
-        4 noise trials
-    """
-
-    n_pattern = round(
-        n_trials
-        * pattern_probability
-    )
-
-    n_noise = (
-        n_trials
-        - n_pattern
-    )
-
-    schedule = (
-        [False] * n_pattern
-        + [True] * n_noise
-    )
-
-    random.shuffle(
-        schedule
-    )
-
+def create_noise_schedule(n_trials, pattern_probability):
+    n_rule = round(n_trials * pattern_probability)
+    schedule = [False] * n_rule + [True] * (n_trials - n_rule)
+    random.shuffle(schedule)
     return schedule
 
 
-# -----------------------------------------------------------------------------
-# Latent sequence
-# -----------------------------------------------------------------------------
-
-
-def get_pattern_prediction(
-    cycle,
-    prediction_index,
-):
-    """
-    Return the expected outcome from the fixed latent cycle.
-    """
-
-    k = len(
-        cycle
-    )
-
-    cycle_position = (
-        prediction_index
-        % k
-    )
-
-    return cycle[
-        cycle_position
-    ]
+def get_pattern_prediction(cycle, prediction_index):
+    return cycle[prediction_index % len(cycle)]
 
 
 def opposite_color(color):
-    """Return the opposite ball color."""
-
     if color == "blue":
-
         return "magenta"
-
     if color == "magenta":
-
         return "blue"
-
-    raise ValueError(
-        f"Unknown color: {color}"
-    )
+    raise ValueError(f"Unknown color: {color}")
 
 
-def generate_next_outcome(
-    selected_urn,
-    prediction_index,
-    is_noise_trial,
-):
-    """
-    Generate one observed outcome.
-
-    Rule trial:
-        display the latent-cycle outcome.
-
-    Noise trial:
-        display the opposite color.
-
-    Noise does not change later positions in the latent cycle.
-    """
-
-    cycle = (
-        selected_urn[
-            "cycle"
-        ]
-    )
-
-    pattern_prediction = (
-        get_pattern_prediction(
-            cycle=cycle,
-            prediction_index=prediction_index,
-        )
-    )
-
-    if is_noise_trial:
-
-        outcome = opposite_color(
-            pattern_prediction
-        )
-
-    else:
-
-        outcome = (
-            pattern_prediction
-        )
-
-    return (
-        outcome,
-        pattern_prediction,
-    )
+def generate_next_outcome(selected_urn, prediction_index, is_noise_trial):
+    pattern_prediction = get_pattern_prediction(selected_urn["cycle"], prediction_index)
+    outcome = (opposite_color(pattern_prediction) if is_noise_trial
+               else pattern_prediction)
+    return outcome, pattern_prediction
 
 
 # -----------------------------------------------------------------------------
-# Trial display
+# Choice screen: matching training_task.py's reward cards.
 # -----------------------------------------------------------------------------
-def draw_score_progress(
-    win,
-    trial_results,
-    total_trials,
-):
-    """
-    Draw one small square per trial vertically.
 
-    Green = correct
-    Red   = incorrect
-    Grey  = not completed
-    """
+def _indicators(win, x, y, filled, total=3, radius=0.008, spacing=0.026):
+    for i in range(total):
+        active = i < filled
+        circle = _cached(win, ("card_indicator", x, y, i, radius, spacing),
+                         lambda: visual.Circle(
+                             win=win, radius=radius,
+                             pos=(x + i * spacing, y), edges=32,
+                             lineWidth=1.2))
+        circle.fillColor = "#334155" if active else None
+        circle.lineColor = "#334155" if active else "#94a3b8"
+        circle.draw()
 
-    square_size = 0.035
-    gap = 0.005
 
-    # Put the bar on the right side of the screen
-    x_pos = 0.72
+def draw_selection_condition_text(win, urn, x_pos):
+    
+    ambiguous = urn["urn_type"] == "ambiguous"
+    y, width = -0.280, 0.53
 
-    total_height = (
-        total_trials * square_size
-        + (total_trials - 1) * gap
-    )
+    # Same colors for both urns
+    fill = "#EDF1F5"
+    border = "#C4CDD8"
+    accent = "#172B49"
 
-    # Center the whole stack vertically
-    start_y = (
-        total_height / 2
-        - square_size / 2
-    )
-
-    for i in range(total_trials):
-
-        y_pos = (
-            start_y
-            - i * (
-                square_size + gap
-            )
+    rect = _cached(
+        win,
+        ("card", ambiguous, x_pos),
+        lambda: visual.Rect(
+            win,
+            pos=(x_pos, y),
+            width=width,
+            height=0.190,
+            fillColor=fill,
+            lineColor=border,
+            lineWidth=1.2
         )
+    )
+    rect.draw()
 
-        if i < len(trial_results):
+    heading = "MAXIMUM REWARD" if ambiguous else "GUARANTEED REWARD"
+    amount = (f"+4 pts (max {params.MAX_AMBIGUOUS_REWARD:g})" if ambiguous
+              else f"{urn['value']:g} pts")
+    subtitle = ("earn points per correct guess"
+                if ambiguous else "Fixed reward")
+    draw_text(win, heading, (x_pos, y + 0.067), 0.018,
+              color="#475569", bold=True).draw()
+    draw_text(win, amount, (x_pos, y + 0.020), 0.042,
+              color=accent, bold=True).draw()
+    draw_text(win, subtitle, (x_pos, y - 0.020), 0.020,
+              color=accent).draw()
+    draw_text(win, "Pattern length", (x_pos - 0.075, y - 0.060),
+              0.020, wrap_width=0.18, color="#334155").draw()
+    count = int(urn["ambiguous_k"]) if urn["participant_knows_k"] else 0
+    _indicators(win, x_pos + 0.015, y - 0.060, count)
 
-            if trial_results[i]:
-                fill_color = "green"
-            else:
-                fill_color = "#950b19"
 
-        else:
-            fill_color = "lightgrey"
+def collect_urn_choice(win, urn_assignment):
+    draw_text(win, "Choose an urn", (0, 0.405),
+              height=0.047, bold=True, color="#172b49").draw()
+    draw_text(win, "Press ← or → to choose", (0, 0.325),
+              height=0.026, color="#576a82").draw()
+    for side in ("left", "right"):
+        urn = urn_assignment[side]
+        x = params.URN_LEFT_POS[0] if side == "left" else params.URN_RIGHT_POS[0]
+        _image(win, urn["closed_image"],
+               (x, params.URN_LEFT_POS[1]),
+               (params.URN_IMAGE_SIZE[0] * 1.3, params.URN_IMAGE_SIZE[1] * 1.3)).draw()
+        draw_selection_condition_text(win, urn, x)
 
-        square = visual.Rect(
-            win=win,
-            width=square_size,
-            height=square_size,
-            pos=(
-                x_pos,
-                y_pos,
-            ),
-            fillColor=fill_color,
-            lineColor="grey",
-            lineWidth=1,
-        )
+    event.clearEvents()
+    clock = core.Clock()
+    win.callOnFlip(clock.reset)
+    win.flip()
+    keys = event.waitKeys(keyList=["left", "right", "escape"], timeStamped=clock)
+    key, reaction_time = keys[0]
+    if key == "escape":
+        quit_experiment(win)
+    return key, float(reaction_time)
 
-        square.draw()
 
-def draw_trial_dividers(win):
-    """Draw horizontal divider lines."""
+def animate_selected_urn_transition(win, selected_urn, selected_side,
+                                    urn_assignment, highlight_duration=0.10,
+                                    move_duration=0.24):
+    """Reuse images while selected urn moves to the prediction position."""
+    start = (params.URN_LEFT_POS if selected_side == "left"
+             else params.URN_RIGHT_POS)
+    other_side = "right" if selected_side == "left" else "left"
+    other = urn_assignment[other_side]
+    other_pos = (params.URN_LEFT_POS if other_side == "left"
+                 else params.URN_RIGHT_POS)
 
-    top_line = visual.Line(
-        win=win,
-        start=(
-            -params.DIVIDER_WIDTH / 2,
-            params.TOP_DIVIDER_Y,
-        ),
-        end=(
-            params.DIVIDER_WIDTH / 2,
-            params.TOP_DIVIDER_Y,
-        ),
-        lineColor=params.DIVIDER_LINE_COLOR,
-        lineWidth=params.DIVIDER_LINE_WIDTH,
+    # Reuse two stimuli throughout the movement, not recreate each frame.
+    moving = _image(win, selected_urn["opened_image"], start, params.URN_IMAGE_SIZE)
+    other_stim = _image(win, other["closed_image"], other_pos, params.URN_IMAGE_SIZE)
+    off_x = -0.80 if other_side == "left" else 0.80
+    n_frames = max(2, int(move_duration * 30))
+    for i in range(n_frames + 1):
+        t = i / n_frames
+        t = t * t * (3 - 2 * t)
+        moving.pos = (start[0] + (params.SELECTED_URN_POS[0] - start[0]) * t,
+                      start[1] + (params.SELECTED_URN_POS[1] - start[1]) * t)
+        moving.size = tuple(params.URN_IMAGE_SIZE[j]
+                            + (params.SELECTED_URN_SIZE[j] - params.URN_IMAGE_SIZE[j]) * t
+                            for j in range(2))
+        other_stim.pos = (other_pos[0] + (off_x - other_pos[0]) * t, other_pos[1])
+        other_stim.draw()
+        moving.draw()
+        win.flip()
+    # Restore the shared cached stimulus's size if used on later screens.
+    moving.size = params.URN_IMAGE_SIZE
+
+
+# -----------------------------------------------------------------------------
+# Prediction screen: matching practice (left indicators + rounded score bar).
+# -----------------------------------------------------------------------------
+
+def _draw_info(win, selected_urn):
+    # ---------------------------------------------------------
+    # Urn type (top row)
+    # ---------------------------------------------------------
+
+    reward_type = (
+        "Fixed reward"
+        if selected_urn["urn_type"] == "deterministic"
+        else "Performance-dependent reward"
     )
 
-    bottom_line = visual.Line(
-        win=win,
-        start=(
-            -params.DIVIDER_WIDTH / 2,
-            params.BOTTOM_DIVIDER_Y,
+    # Left-aligned label
+    draw_text(
+        win,
+        "Urn type",
+        (params.INFO_LABEL_X, params.URN_TYPE_Y),
+        height=params.INFO_TEXT_HEIGHT,
+        color=params.INFO_COLOR,
+        align_text="left"
+    ).draw()
+    # Left-aligned reward description
+    draw_text(
+        win,
+        reward_type,
+        (
+            params.INFO_BALL_START_X + params.URN_TYPE_VALUE_OFFSET_X,
+            params.URN_TYPE_Y
         ),
-        end=(
-            params.DIVIDER_WIDTH / 2,
-            params.BOTTOM_DIVIDER_Y,
-        ),
-        lineColor=params.DIVIDER_LINE_COLOR,
-        lineWidth=params.DIVIDER_LINE_WIDTH,
-    )
-
-    top_line.draw()
-    bottom_line.draw()
-
-
-def draw_sequence_feedback(
-    win,
-    sequence,
-):
-    """Draw the observed ball history."""
-
-    title = draw_text(
-        win=win,
-        text=params.SEQUENCE_TITLE,
-        pos=params.SEQUENCE_TITLE_POS,
-        height=params.SEQUENCE_TITLE_HEIGHT,
-        wrap_width=0.30,
+        height=params.INFO_TEXT_HEIGHT,
+        color=params.INFO_COLOR,
         bold=True,
-        align_text="left",
+        align_text="left"
+    ).draw()
+
+    known = bool(selected_urn["participant_knows_k"])
+    k_count = int(selected_urn["ambiguous_k"]) if known else 0
+
+    # Show the number directly next to the pattern-length label.
+    pattern_label = (
+        f"Pattern length ({k_count})"
+        if known else "Pattern length (?)"
     )
 
-    title.draw()
+    for row, (label, count) in enumerate((
+        (pattern_label, k_count),
+        (f"Flipped balls ({params.N_RANDOM_DRAWS})", params.N_RANDOM_DRAWS)
+    )):
 
-    for i, color in enumerate(
-        sequence
-    ):
+        y = params.INFO_ROW_Y[row]
+        draw_text(win, label, (params.INFO_LABEL_X, y),
+                  height=params.INFO_TEXT_HEIGHT, color=params.INFO_COLOR,
+                  align_text="left").draw()
+        for i in range(3):
+            circle = _cached(win, ("info_ball", row, i),
+                             lambda: visual.Circle(win=win,
+                                                   pos=(params.INFO_BALL_START_X
+                                                        + i * params.INFO_BALL_SPACING, y),
+                                                   radius=params.INFO_BALL_RADIUS,
+                                                   edges=32, lineWidth=1.3))
+            active = i < count
+            circle.fillColor = params.INFO_COLOR if active else None
+            circle.lineColor = params.INFO_COLOR if active else params.INFO_EMPTY_COLOR
+            circle.draw()
 
-        row = (
-            i
-            // params.FEEDBACK_BALLS_PER_ROW
-        )
 
-        column = (
-            i
-            % params.FEEDBACK_BALLS_PER_ROW
-        )
+def _draw_pill(win, left, right, y, height, color, key):
+    r = height / 2
+    inner_width = max(0, right - left - height)
+    if inner_width > 0:
+        rect = _cached(win, ("bar_rect", key), lambda: visual.Rect(
+            win=win, pos=((left + right) / 2, y), width=inner_width,
+            height=height, fillColor=color, lineColor=None))
+        rect.pos = ((left + right) / 2, y)
+        rect.width = inner_width
+        rect.draw()
+    for idx, x in enumerate((left + r, right - r)):
+        disk = _cached(win, ("bar_cap", key, idx), lambda: visual.Circle(
+            win=win, radius=r, pos=(x, y), edges=32,
+            fillColor=color, lineColor=None))
+        disk.pos = (x, y)
+        disk.draw()
 
-        x_pos = (
-            params.FEEDBACK_START_X
-            + column
-            * params.FEEDBACK_SPACING_X
-        )
 
-        y_pos = (
-            params.FEEDBACK_START_Y
-            - row
-            * params.FEEDBACK_SPACING_Y
-        )
+def draw_score_progress(win, trial_results, total_trials, selected_urn=None):
+    """Bar tracks correct predictions; points track the chosen urn's payoff."""
+    correct = sum(bool(x) for x in trial_results)
+    complete = len(trial_results)
+    fraction = correct / total_trials if total_trials else 0
+    accuracy = 100 * correct / complete if complete else 0
+    if selected_urn is not None and selected_urn["urn_type"] == "deterministic":
+        points = selected_urn["value"]
+    else:
+        points = correct * params.REWARD_PER_CORRECT_GUESS
+    left, right, y, height = (params.SCORE_BAR_LEFT_X, params.SCORE_BAR_RIGHT_X,
+                              params.SCORE_BAR_Y, params.SCORE_BAR_HEIGHT)
+    _draw_pill(win, left, right, y, height, "#d6dce5", "track")
+    filled_width = (right - left) * fraction
+    if filled_width >= height:
+        _draw_pill(win, left, left + filled_width, y, height, "#789bc0", "fill")
+    draw_text(win, f"{points:g} pts", (left + 0.018, y), height=0.021,
+              color="#ffffff" if filled_width >= 0.10 else params.INFO_COLOR,
+              bold=True, align_text="left").draw()
+    draw_text(win, f"{accuracy:.0f}% correct", (params.SCORE_ACCURACY_X, y),
+              height=0.020, color=params.INFO_COLOR, align_text="right").draw()
 
-        ball = visual.Circle(
-            win=win,
-            radius=params.FEEDBACK_BALL_RADIUS,
-            pos=(
-                x_pos,
-                y_pos,
-            ),
-            fillColor=color,
-            lineColor="black",
-            lineWidth=1.5,
-        )
-
-        ball.draw()
 
 def get_feedback_ball_position(ball_index):
-    """
-    Return the screen position for a ball in the draw-history grid.
-    """
+    row, col = divmod(ball_index, params.FEEDBACK_BALLS_PER_ROW)
+    return (params.FEEDBACK_START_X + col * params.FEEDBACK_SPACING_X,
+            params.FEEDBACK_START_Y - row * params.FEEDBACK_SPACING_Y)
 
-    row = (
-        ball_index
-        // params.FEEDBACK_BALLS_PER_ROW
-    )
 
-    column = (
-        ball_index
-        % params.FEEDBACK_BALLS_PER_ROW
-    )
+def draw_sequence_feedback(win, sequence):
+    draw_text(win, params.SEQUENCE_TITLE, params.SEQUENCE_TITLE_POS,
+              height=params.SEQUENCE_TITLE_HEIGHT, wrap_width=0.30,
+              bold=True, color="#172b49", align_text="left").draw()
+    for i, color in enumerate(sequence):
+        pos = get_feedback_ball_position(i)
+        dot = _cached(win, ("history_ball", i),
+                    lambda: visual.Circle(win, pos=pos,
+                                            radius=params.FEEDBACK_BALL_RADIUS,
+                                            fillColor=params.ball_display_color(color),
+                                            lineColor="black", lineWidth=1.5, edges=32))
+        dot.pos = pos
+        dot.fillColor = params.ball_display_color(color)
+        dot.draw()
 
-    x_pos = (
-        params.FEEDBACK_START_X
-        + column
-        * params.FEEDBACK_SPACING_X
-    )
 
-    y_pos = (
-        params.FEEDBACK_START_Y
-        - row
-        * params.FEEDBACK_SPACING_Y
-    )
+def draw_trial_instruction(win, selected_urn):
+    _draw_info(win, selected_urn)
 
-    return (
-        x_pos,
-        y_pos,
-    )
 
-def draw_hidden_ball(
-    win,
-    ball_color,
-    ball_pos,
-    cover_pos=None,
-    cover_symbol="?",
-    cover_symbol_color="black",
-):
-    """
-    Draw a colored ball with a square covering it.
+def draw_trial_dividers(win):
+    """Retained for compatibility. Practice screen has no dividers."""
+    return None
 
-    The square can display:
-        ?  while the outcome is hidden
-        ✓  for a correct prediction
-        ✕  for an incorrect prediction
-    """
 
-    if cover_pos is None:
-        cover_pos = ball_pos
+def draw_prediction_choices(win):
+    """Keyboard-only input. A reminder appears after the delay."""
+    return None
 
-    # Actual ball underneath
-    ball = visual.Circle(
-        win=win,
-        radius=params.OUTCOME_BALL_RADIUS,
-        pos=ball_pos,
-        fillColor=ball_color,
-        lineColor="black",
-        lineWidth=2,
-    )
 
-    cover_size = (
-        params.OUTCOME_BALL_RADIUS
-        * 2.4
-    )
+def _prediction_frame(win, selected_urn, sequence, trial_results, reminder=False):
+    draw_trial_instruction(win, selected_urn)
+    draw_score_progress(win, trial_results, params.N_TRIALS_PER_ROUND, selected_urn)
+    draw_sequence_feedback(win, sequence)
+    draw_selected_open_urn(win, selected_urn)
+    if reminder:
+        draw_text(win, "Press B for blue or M for magenta", (0, -0.145),
+                  height=0.023, color="#66758b").draw()
 
-    # Square covering the ball
-    cover = visual.Rect(
-        win=win,
-        width=cover_size,
-        height=cover_size,
-        pos=cover_pos,
-        fillColor="lightgrey",
-        lineColor="black",
-        lineWidth=2,
-    )
 
-    # Symbol inside the square
-    symbol = draw_text(
-        win=win,
-        text=cover_symbol,
-        pos=cover_pos,
-        height=0.045,
-        bold=True,
-        color=cover_symbol_color,
-    )
-
-    ball.draw()
-    cover.draw()
-    symbol.draw()
-
-def animate_ball_reveal(
-    win,
-    selected_urn,
-    sequence,
-    trial_number,
-    total_trials,
-    guess,
-    outcome,
-    rise_duration=0.30,
-    reveal_duration=0.25,
-    pause_duration=0.25,
-    history_duration=0.35,
-):
-    """
-    Animation sequence:
-
-    1. Covered ball rises from the urn to the normal outcome position.
-    2. Cover slides right to reveal the ball.
-    3. Revealed ball pauses briefly.
-    4. Ball moves into its final draw-history position.
-    """
-    correct = (
-        guess == outcome
-    )
-
-    if correct:
-
-        feedback_symbol = "✓"
-        feedback_color = params.CORRECT_TEXT_COLOR
-
-    else:
-
-        feedback_symbol = "✕"
-        feedback_color = params.INCORRECT_TEXT_COLOR
-    # Do not draw the newest ball in history during the animation.
-    previous_sequence = sequence[:-1]
-
-    newest_ball_index = (
-        len(sequence) - 1
-    )
-
-    history_pos = (
-        get_feedback_ball_position(
-            newest_ball_index
-        )
-    )
-
-    # -------------------------------------------------------------
-    # Positions
-    # -------------------------------------------------------------
-
-    start_pos = (
-        params.SELECTED_URN_POS[0],
-        params.SELECTED_URN_POS[1]
-        + params.SELECTED_URN_SIZE[1] * 0.25,
-    )
-
-    # This is where your outcome ball already appears.
-    reveal_pos = (
-        params.OUTCOME_BALL_POS
-    )
-
-    # -------------------------------------------------------------
-    # Helper: redraw the static trial background
-    # -------------------------------------------------------------
-
-    def draw_background():
-
-        draw_trial_instruction(
-            win=win,
-            selected_urn=selected_urn,
-        )
-
-        draw_trial_dividers(
-            win
-        )
-
-        draw_sequence_feedback(
-            win=win,
-            sequence=previous_sequence,
-        )
-
-        draw_selected_open_urn(
-            win=win,
-            selected_urn=selected_urn,
-        )
-
-
-    # -------------------------------------------------------------
-    # PART 1: covered ball rises from urn
-    # -------------------------------------------------------------
-
-    clock = core.Clock()
-
-    while clock.getTime() < rise_duration:
-
-        t = (
-            clock.getTime()
-            / rise_duration
-        )
-
-        t = min(
-            max(t, 0),
-            1,
-        )
-
-        current_x = (
-            start_pos[0]
-            + t
-            * (
-                reveal_pos[0]
-                - start_pos[0]
-            )
-        )
-
-        current_y = (
-            start_pos[1]
-            + t
-            * (
-                reveal_pos[1]
-                - start_pos[1]
-            )
-        )
-
-        current_pos = (
-            current_x,
-            current_y,
-        )
-
-        draw_background()
-
-        draw_hidden_ball(
-            win=win,
-            ball_color=outcome,
-            ball_pos=current_pos,
-            cover_pos=current_pos,
-            cover_symbol="?",
-            cover_symbol_color="black",
-        )
-
-        win.flip()
-
-    # -------------------------------------------------------------
-    # PART 2: cover slides right
-    # -------------------------------------------------------------
-
-    clock = core.Clock()
-
-    cover_distance = 0.11
-
-    while clock.getTime() < reveal_duration:
-
-        t = (
-            clock.getTime()
-            / reveal_duration
-        )
-
-        t = min(
-            max(t, 0),
-            1,
-        )
-
-        cover_pos = (
-            reveal_pos[0]
-            + t * cover_distance,
-            reveal_pos[1],
-        )
-
-        draw_background()
-
-        draw_hidden_ball(
-            win=win,
-            ball_color=outcome,
-            ball_pos=reveal_pos,
-            cover_pos=cover_pos,
-            cover_symbol=feedback_symbol,
-            cover_symbol_color=feedback_color,
-        )
-
-        win.flip()
-
-    # -------------------------------------------------------------
-    # PART 3: revealed ball pauses
-    # -------------------------------------------------------------
-
-    draw_background()
-
-    revealed_ball = visual.Circle(
-        win=win,
-        radius=params.OUTCOME_BALL_RADIUS,
-        pos=reveal_pos,
-        fillColor=outcome,
-        lineColor="black",
-        lineWidth=2,
-    )
-
-    revealed_ball.draw()
-
-    win.flip()
-
-    core.wait(
-        pause_duration
-    )
-
-    # -------------------------------------------------------------
-    # PART 4: revealed ball travels to history
-    # -------------------------------------------------------------
-
-    clock = core.Clock()
-
-    while clock.getTime() < history_duration:
-
-        t = (
-            clock.getTime()
-            / history_duration
-        )
-
-        t = min(
-            max(t, 0),
-            1,
-        )
-
-        current_x = (
-            reveal_pos[0]
-            + t
-            * (
-                history_pos[0]
-                - reveal_pos[0]
-            )
-        )
-
-        current_y = (
-            reveal_pos[1]
-            + t
-            * (
-                history_pos[1]
-                - reveal_pos[1]
-            )
-        )
-
-        current_pos = (
-            current_x,
-            current_y,
-        )
-
-        draw_background()
-
-        moving_ball = visual.Circle(
-            win=win,
-            radius=params.OUTCOME_BALL_RADIUS,
-            pos=current_pos,
-            fillColor=outcome,
-            lineColor="black",
-            lineWidth=2,
-        )
-
-        moving_ball.draw()
-
-        win.flip()
-
-
-def get_trial_instruction(
-    selected_urn,
-):
-
-    # -------------------------------------------------------------
-    # Deterministic urn
-    # -------------------------------------------------------------
-
-    if selected_urn["urn_type"] == "deterministic":
-
-        return {
-            "reward_label": (
-                params.REWARD_LABEL
-            ),
-
-            "reward_value": (
-                params.DETERMINISTIC_REWARD_VALUE.format(
-                    value=selected_urn["value"]
-                )
-            ),
-
-            "sequence_label": (
-                params.SEQUENCE_LENGTH_LABEL
-            ),
-
-            "sequence_value": str(
-                selected_urn["ambiguous_k"]
-            ),
-
-            "random_label": (
-                params.RANDOM_BALLS_LABEL
-            ),
-
-            "random_value": str(
-                params.N_RANDOM_DRAWS
-            ),
-
-            "guess_keys_text": (
-                params.GUESS_KEYS_TEXT
-            ),
-        }
-
-    # -------------------------------------------------------------
-    # Ambiguous urn
-    # -------------------------------------------------------------
-
-    if selected_urn["participant_knows_k"]:
-
-        sequence_value = str(
-            selected_urn["ambiguous_k"]
-        )
-
-    else:
-
-        sequence_value = (
-            params.UNKNOWN_SEQUENCE_LENGTH_VALUE
-        )
-
-    return {
-        "reward_label": (
-            params.REWARD_LABEL
-        ),
-
-        "reward_value": (
-            params.AMBIGUOUS_REWARD_VALUE.format(
-                reward_per_correct=(
-                    params.REWARD_PER_CORRECT_GUESS
-                ),
-                max_reward=(
-                    params.MAX_AMBIGUOUS_REWARD
-                ),
-            )
-        ),
-
-        "sequence_label": (
-            params.SEQUENCE_LENGTH_LABEL
-        ),
-
-        "sequence_value": (
-            sequence_value
-        ),
-
-        "random_label": (
-            params.RANDOM_BALLS_LABEL
-        ),
-
-        "random_value": str(
-            params.N_RANDOM_DRAWS
-        ),
-
-        "guess_keys_text": (
-            params.GUESS_KEYS_TEXT
-        ),
-    }
-
-def draw_trial_instruction(
-    win,
-    selected_urn,
-):
-    """
-    Draw the trial information in a two-column card.
-
-    Left column  = labels
-    Right column = values
-
-    Sequence length value = muted red
-    Random balls value    = dark blue
-    """
-
-    instruction = get_trial_instruction(
-        selected_urn
-    )
-
-    # -------------------------------------------------------------
-    # Card geometry
-    # -------------------------------------------------------------
-
-    card_width = params.DIVIDER_WIDTH
-    card_height = 0.23
-
-    card_x = 0.0
-    card_y = 0.39
-
-    card_left = (
-        card_x
-        - card_width / 2
-    )
-
-    card_right = (
-        card_x
-        + card_width / 2
-    )
-
-    card_top = (
-        card_y
-        + card_height / 2
-    )
-
-    card_bottom = (
-        card_y
-        - card_height / 2
-    )
-
-    # -------------------------------------------------------------
-    # Draw card background
-    # -------------------------------------------------------------
-
-    card = visual.Rect(
-        win=win,
-        width=card_width,
-        height=card_height,
-        pos=(
-            card_x,
-            card_y,
-        ),
-        fillColor="#e3e3e3",
-        lineColor="#aaaaaa",
-        lineWidth=1.5,
-    )
-
-    card.draw()
-
-    # -------------------------------------------------------------
-    # Internal layout
-    # -------------------------------------------------------------
-
-    label_x = card_left + 0.2
-
-    divider_x = 0.02
-
-    value_x = 0.2
-
-    reward_y = card_top - 0.08
-
-    sequence_y = reward_y - 0.04
-    
-    random_y = sequence_y - 0.04
-
-    controls_divider_y =card_bottom + 0.04
-
-    keys_y = card_bottom + 0.022
-
-    label_width = 0.32
-    value_width = 0.32
-    text_height = 0.024
-
-    # -------------------------------------------------------------
-    # Vertical divider between label/value columns
-    # -------------------------------------------------------------
-
-    vertical_divider = visual.Line(
-        win=win,
-        start=(
-            divider_x,
-            random_y - 0.02,
-        ),
-        end=(
-            divider_x,
-            reward_y + 0.02,
-        ),
-        lineColor="#b5b5b5",
-        lineWidth=1.2,
-    )
-
-    vertical_divider.draw()
-
-    # -------------------------------------------------------------
-    # Horizontal divider above B / M controls
-    # -------------------------------------------------------------
-
-    controls_divider = visual.Line(
-        win=win,
-        start=(
-            card_left + 0.03,
-            controls_divider_y,
-        ),
-        end=(
-            card_right - 0.03,
-            controls_divider_y,
-        ),
-        lineColor="#b5b5b5",
-        lineWidth=1,
-    )
-
-    controls_divider.draw()
-
-    # -------------------------------------------------------------
-    # Reward row
-    # -------------------------------------------------------------
-
-    draw_text(
-        win=win,
-        text=instruction[
-            "reward_label"
-        ],
-        pos=(
-            label_x,
-            reward_y,
-        ),
-        height=text_height,
-        wrap_width=label_width,
-        align_text="left",
-        bold=True,
-    ).draw()
-
-    draw_text(
-        win=win,
-        text=instruction[
-            "reward_value"
-        ],
-        pos=(
-            value_x,
-            reward_y,
-        ),
-        height=text_height,
-        wrap_width=value_width,
-        align_text="left",
-    ).draw()
-
-    # -------------------------------------------------------------
-    # Sequence length row
-    # -------------------------------------------------------------
-
-    draw_text(
-        win=win,
-        text=instruction[
-            "sequence_label"
-        ],
-        pos=(
-            label_x,
-            sequence_y,
-        ),
-        height=text_height,
-        wrap_width=label_width,
-        align_text="left",
-        bold=True,
-    ).draw()
-
-    draw_text(
-        win=win,
-        text=instruction[
-            "sequence_value"
-        ],
-        pos=(
-            value_x,
-            sequence_y,
-        ),
-        height=text_height,
-        wrap_width=value_width,
-        align_text="left",
-        color="#9b3030",
-        bold=True,
-    ).draw()
-
-    # -------------------------------------------------------------
-    # Random balls row
-    # -------------------------------------------------------------
-
-    draw_text(
-        win=win,
-        text=instruction[
-            "random_label"
-        ],
-        pos=(
-            label_x,
-            random_y,
-        ),
-        height=text_height,
-        wrap_width=label_width,
-        align_text="left",
-        bold=True,
-    ).draw()
-
-    draw_text(
-        win=win,
-        text=instruction[
-            "random_value"
-        ],
-        pos=(
-            value_x,
-            random_y,
-        ),
-        height=text_height,
-        wrap_width=value_width,
-        align_text="left",
-        color="#1f4e79",
-        bold=True,
-    ).draw()
-
-    # -------------------------------------------------------------
-    # Response controls
-    # -------------------------------------------------------------
-
-    draw_text(
-        win=win,
-        text="[B] BLUE",
-        pos=(
-            -0.14,
-            keys_y,
-        ),
-        height=0.024,
-        bold=True,
-    ).draw()
-
-    draw_text(
-        win=win,
-        text="[M] MAGENTA",
-        pos=(
-            0.14,
-            keys_y,
-        ),
-        height=0.024,
-        bold=True,
-    ).draw()
-
-def animate_urn_shake(
-    win,
-    selected_urn,
-    sequence,
-    trial_number,
-    total_trials,
-    duration=0.30,
-    amplitude=0.02,
-):
-    """
-    Briefly shake the selected urn horizontally.
-
-    The rest of the prediction screen remains visible while
-    the urn moves left and right.
-    """
-
-    clock = core.Clock()
-
-    base_x = params.SELECTED_URN_POS[0]
-    base_y = params.SELECTED_URN_POS[1]
-
-    while clock.getTime() < duration:
-
-        elapsed = clock.getTime()
-
-        # Alternate quickly between left and right.
-        direction = (
-            1
-            if int(elapsed / 0.035) % 2 == 0
-            else -1
-        )
-
-        shake_x = (
-            base_x
-            + direction * amplitude
-        )
-
-        # -------------------------------------------------------------
-        # Redraw the normal prediction screen
-        # -------------------------------------------------------------
-
-        
-
-        prompt = draw_text(
-            win=win,
-            text=params.GUESS_PROMPT,
-            pos=params.GUESS_PROMPT_POS,
-            height=params.GUESS_PROMPT_HEIGHT,
-            bold=True,
-        )
-
-
-        draw_trial_instruction(
-            win=win,
-            selected_urn=selected_urn,
-        )
-
-        draw_trial_dividers(
-            win
-        )
-
-        draw_sequence_feedback(
-            win=win,
-            sequence=sequence,
-        )
-
-        prompt.draw()
-
-        # -------------------------------------------------------------
-        # Draw urn at temporary shaking position
-        # -------------------------------------------------------------
-
-        urn_display = create_image_urn(
-            win=win,
-            pos=(
-                shake_x,
-                base_y,
-            ),
-            label_text=selected_urn[
-                "label"
-            ],
-            image_path=selected_urn[
-                "opened_image"
-            ],
-            size=params.SELECTED_URN_SIZE,
-            show_label=False,
-        )
-
-        draw_all(
-            urn_display
-        )
-
-        win.flip()
-
-def animate_selected_urn_transition(
-    win,
-    selected_urn,
-    selected_side,
-    urn_assignment,
-    highlight_duration=0.20,
-    move_duration=0.45,
-):
-    """
-    1. Briefly highlight the selected closed urn.
-    2. Change it to the opened urn.
-    3. Move it smoothly to SELECTED_URN_POS.
-    """
-
-    # -------------------------------------------------------------
-    # Starting position of selected urn
-    # -------------------------------------------------------------
-
-    if selected_side == "left":
-        start_pos = params.URN_LEFT_POS
-        other_side = "right"
-    else:
-        start_pos = params.URN_RIGHT_POS
-        other_side = "left"
-
-    end_pos = params.SELECTED_URN_POS
-
-    # -------------------------------------------------------------
-    # PART 1: highlight selected urn
-    # -------------------------------------------------------------
-
-    clock = core.Clock()
-
-    while clock.getTime() < highlight_duration:
-
-        # Draw the unselected urn normally
-        other_urn = urn_assignment[other_side]
-
-        other_pos = (
-            params.URN_LEFT_POS
-            if other_side == "left"
-            else params.URN_RIGHT_POS
-        )
-
-        other_display = create_image_urn(
-            win=win,
-            pos=other_pos,
-            label_text=other_urn["label"],
-            image_path=other_urn["closed_image"],
-            size=params.URN_IMAGE_SIZE,
-            show_label=True,
-        )
-
-        draw_all(other_display)
-
-        # Slightly enlarge selected urn
-        highlighted_size = (
-            params.URN_IMAGE_SIZE[0] * 1.08,
-            params.URN_IMAGE_SIZE[1] * 1.08,
-        )
-
-        selected_display = create_image_urn(
-            win=win,
-            pos=start_pos,
-            label_text=selected_urn["label"],
-            image_path=selected_urn["closed_image"],
-            size=highlighted_size,
-            show_label=True,
-        )
-
-        draw_all(selected_display)
-
-        win.flip()
-
-    # -------------------------------------------------------------
-    # PART 2: selected urn moves in,
-    # unselected urn moves out
-    # -------------------------------------------------------------
-
-    clock = core.Clock()
-
-    # Where the unselected urn should move off-screen
-    if other_side == "left":
-        other_end_pos = (-0.75, other_pos[1])
-    else:
-        other_end_pos = (0.75, other_pos[1])
-
-    while clock.getTime() < move_duration:
-
-        t = (
-            clock.getTime()
-            / move_duration
-        )
-
-        t = min(max(t, 0), 1)
-
-        # Smoothstep easing
-        t_smooth = (
-            t * t * (3 - 2 * t)
-        )
-
-        # ---------------------------------------------------------
-        # Selected urn position
-        # ---------------------------------------------------------
-
-        current_x = (
-            start_pos[0]
-            + t_smooth
-            * (
-                end_pos[0]
-                - start_pos[0]
-            )
-        )
-
-        current_y = (
-            start_pos[1]
-            + t_smooth
-            * (
-                end_pos[1]
-                - start_pos[1]
-            )
-        )
-
-        current_size = (
-            params.URN_IMAGE_SIZE[0]
-            + t_smooth
-            * (
-                params.SELECTED_URN_SIZE[0]
-                - params.URN_IMAGE_SIZE[0]
-            ),
-            params.URN_IMAGE_SIZE[1]
-            + t_smooth
-            * (
-                params.SELECTED_URN_SIZE[1]
-                - params.URN_IMAGE_SIZE[1]
-            ),
-        )
-
-        # ---------------------------------------------------------
-        # Unselected urn position
-        # ---------------------------------------------------------
-
-        other_current_x = (
-            other_pos[0]
-            + t_smooth
-            * (
-                other_end_pos[0]
-                - other_pos[0]
-            )
-        )
-
-        other_current_y = other_pos[1]
-
-        # ---------------------------------------------------------
-        # Draw unselected urn moving outward
-        # ---------------------------------------------------------
-
-        other_moving = create_image_urn(
-            win=win,
-            pos=(
-                other_current_x,
-                other_current_y,
-            ),
-            label_text=other_urn["label"],
-            image_path=other_urn["closed_image"],
-            size=params.URN_IMAGE_SIZE,
-            show_label=True,
-        )
-
-        draw_all(other_moving)
-
-        # ---------------------------------------------------------
-        # Draw selected urn moving inward
-        # ---------------------------------------------------------
-
-        moving_urn = create_image_urn(
-            win=win,
-            pos=(
-                current_x,
-                current_y,
-            ),
-            label_text=selected_urn["label"],
-            image_path=selected_urn["opened_image"],
-            size=current_size,
-            show_label=False,
-        )
-
-        draw_all(moving_urn)
-
-        win.flip()
-
-
-def collect_prediction(
-    win,
-    selected_urn,
-    sequence,
-    trial_number,
-    total_trials=None,
-    number_correct=0,
-    trial_results=None,
-):
-    """Collect one B/M prediction and reaction time."""
-    if trial_results is None:
-        trial_results = []
-    if total_trials is None:
-        total_trials = params.N_TRIALS_PER_BLOCK
+def collect_prediction(win, selected_urn, sequence, trial_number,
+                       total_trials=None, number_correct=0, trial_results=None):
+    trial_results = trial_results if trial_results is not None else []
     event.clearEvents()
-
-    response_clock = (
-        core.Clock()
-    )
-
+    clock = core.Clock()
+    win.callOnFlip(clock.reset)
+    _prediction_frame(win, selected_urn, sequence, trial_results)
+    win.flip()
+    reminder_shown = False
     while True:
-
-        instruction = draw_text(
-            win=win,
-            text=get_trial_instruction(
-                selected_urn
-            ),
-            pos=params.TRIAL_INSTRUCTION_POS,
-            height=params.TRIAL_INSTRUCTION_HEIGHT,
-            wrap_width=params.TRIAL_INSTRUCTION_WRAP_WIDTH,
-        )
-
-        prompt = draw_text(
-            win=win,
-            text=params.GUESS_PROMPT,
-            pos=params.GUESS_PROMPT_POS,
-            height=params.GUESS_PROMPT_HEIGHT,
-            bold=True,
-        )
-
-
-        draw_trial_instruction(
-            win=win,
-            selected_urn=selected_urn,
-        )
-
-
-        draw_trial_dividers(
-            win
-        )
-
-        draw_sequence_feedback(
-            win=win,
-            sequence=sequence,
-        )
-
-        prompt.draw()
-
-        draw_selected_open_urn(
-            win=win,
-            selected_urn=selected_urn,
-        )
-        draw_score_progress(
-        win=win,
-        trial_results=trial_results,
-        total_trials=total_trials,
-        )
-
-        win.flip()
-
-        keys = event.getKeys(
-            keyList=(
-                list(
-                    params.GUESS_KEYS.keys()
-                )
-                + ["escape"]
-            ),
-            timeStamped=response_clock,
-        )
-
+        keys = event.getKeys(keyList=list(params.GUESS_KEYS.keys()) + ["escape"],
+                             timeStamped=clock)
         if keys:
-
-            key, response_time = (
-                keys[0]
-            )
-
+            key, rt = keys[0]
             if key == "escape":
-
-                quit_experiment(
-                    win
-                )
-
-            guess = (
-                params.GUESS_KEYS[
-                    key
-                ]
-            )
-
-            # -------------------------------------------------------------
-            # Shake urn after participant makes prediction
-            # -------------------------------------------------------------
-
-            animate_urn_shake(
-                win=win,
-                selected_urn=selected_urn,
-                sequence=sequence,
-                trial_number=trial_number,
-                total_trials=total_trials,
-            )
-
-            return (
-                guess,
-                response_time,
-            )
-
-
-def show_trial_outcome(
-    win,
-    selected_urn,
-    sequence,
-    trial_number,
-    guess,
-    outcome,
-    total_trials=None,
-    wait_for_continue=False,
-    trial_results=None,
-):
-    """Show the actual outcome and correctness feedback."""
-    if trial_results is None:
-        trial_results = []
-    animate_ball_reveal(
-    win=win,
-    selected_urn=selected_urn,
-    sequence=sequence,
-    trial_number=trial_number,
-    total_trials=total_trials,
-    guess=guess,
-    outcome=outcome,
-    )
-    draw_sequence_feedback(
-    win=win,
-    sequence=sequence,
-    )
-
-    if total_trials is None:
-        total_trials = params.N_TRIALS_PER_BLOCK
-
-
-
-
-
-    # -------------------------------------------------------------
-    # Draw normal trial screen
-    # -------------------------------------------------------------
-    draw_trial_instruction(
-        win=win,
-        selected_urn=selected_urn,
-    )
-
-    draw_trial_dividers(
-        win
-    )
-
-    draw_sequence_feedback(
-        win=win,
-        sequence=sequence,
-    )
-
-    draw_selected_open_urn(
-        win=win,
-        selected_urn=selected_urn,
-    )
-
-    # -------------------------------------------------------------
-    # On the final trial, add the SPACE prompt
-    # -------------------------------------------------------------
-
-    if wait_for_continue:
-
-        continue_text = draw_text(
-            win=win,
-            text=params.SELECTED_URN_CONTINUE_TEXT,
-            pos=(0, -0.20),
-            height=0.034,
-            wrap_width=1.10,
-        )
-
-        continue_text.draw()
-    draw_score_progress(
-        win=win,
-        trial_results=trial_results,
-        total_trials=total_trials,
-    )
-
-    # Show everything
-    win.flip()
-
-    # -------------------------------------------------------------
-    # Waiting behaviour
-    # -------------------------------------------------------------
-
-    if wait_for_continue:
-
-        # Clear any old key presses before waiting
-        event.clearEvents()
-
-        keys = event.waitKeys(
-            keyList=[
-                "space",
-                "escape",
-            ]
-        )
-
-        if "escape" in keys:
-            quit_experiment(
-                win
-            )
-
-    else:
-
-        # Normal trials only stay visible briefly
-        core.wait(
-            params.REVEAL_DURATION
-        )
-
-        event.clearEvents()
-
-        core.wait(
-            params.INTER_TRIAL_INTERVAL
-        )
-
-
-# -----------------------------------------------------------------------------
-# Prediction block
-# -----------------------------------------------------------------------------
-
-
-def run_trials(
-    win,
-    selected_urn,
-    n_trials=None,
-):
-    """
-    Run one complete prediction block.
-
-    Every participant sees the same number of initial draws,
-    regardless of k.
-
-    The latent cycle continues from those initial draws rather
-    than restarting when prediction trial 1 begins.
-
-    After the final prediction, the participant can inspect the
-    complete ball history and must press SPACE to continue.
-    """
-
-    if n_trials is None:
-        n_trials = params.N_TRIALS_PER_BLOCK
-
-    k = selected_urn[
-        "ambiguous_k"
-    ]
-
-    cycle = selected_urn[
-        "cycle"
-    ]
-
-    # -----------------------------------------------------------------
-    # Initial observations
-    # -----------------------------------------------------------------
-
-    seed_sequence = (
-        generate_latent_sequence(
-            cycle=cycle,
-            n_draws=params.N_INITIAL_DRAWS,
-        )
-    )
-
-    sequence = list(
-        seed_sequence
-    )
-
-    # -----------------------------------------------------------------
-    # Noise schedule
-    # -----------------------------------------------------------------
-
-    noise_schedule = (
-        create_noise_schedule(
-            n_trials,
-            params.PATTERN_PROBABILITY,
-        )
-    )
-
-    trial_data = []
-
-    # -----------------------------------------------------------------
-    # Trials
-    # -----------------------------------------------------------------
-
-    for (
-        trial_number,
-        is_noise_trial,
-    ) in enumerate(
-        noise_schedule,
-        start=1,
-    ):
-
-        history_before_draw = list(
-            sequence
-        )
-
-        number_correct_so_far = sum(
-            row["correct"]
-            for row in trial_data
-        )
-        trial_results = [
-            row["correct"]
-            for row in trial_data
-        ]
-
-        guess, response_time = (
-            collect_prediction(
-                win=win,
-                selected_urn=selected_urn,
-                sequence=sequence,
-                trial_number=trial_number,
-                total_trials=n_trials,
-                number_correct=number_correct_so_far,
-                trial_results=trial_results
-            )
-        )
-
-        # Absolute position in the latent sequence.
-        #
-        # Example:
-        #
-        # If 4 initial balls were already displayed, prediction
-        # trial 1 corresponds to latent position 4.
-        prediction_index = (
-            params.N_INITIAL_DRAWS
-            + trial_number
-            - 1
-        )
-
-        (
-            outcome,
-            pattern_prediction,
-        ) = generate_next_outcome(
-            selected_urn=selected_urn,
-            prediction_index=prediction_index,
-            is_noise_trial=is_noise_trial,
-        )
-
-        sequence.append(
-            outcome
-        )
-
-        correct = (
-            guess == outcome
-        )
-        updated_trial_results = (
-            trial_results
-            + [correct]
-        )
-
-        number_correct_after_outcome = (
-            number_correct_so_far
-            + int(correct)
-        )
-
-        outcome_matches_pattern = (
-            outcome
-            == pattern_prediction
-        )
-
-        cycle_position = (
-            prediction_index
-            % k
-        )
-
-        trial_data.append(
-            {
-                "trial_number": trial_number,
-
-                "guess": guess,
-                "outcome": outcome,
-                "correct": correct,
-                "response_time": response_time,
-
-                "k": k,
-
-                "prediction_index": (
-                    prediction_index
-                ),
-
-                "cycle_position": (
-                    cycle_position
-                ),
-
-                "is_noise_trial": (
-                    is_noise_trial
-                ),
-
-                "pattern_prediction": (
-                    pattern_prediction
-                ),
-
-                "outcome_matches_pattern": (
-                    outcome_matches_pattern
-                ),
-
-                "history_before_draw": (
-                    history_before_draw
-                ),
-
-                "payoff_type": (
-                    selected_urn[
-                        "payoff_type"
-                    ]
-                ),
-
-                "prediction_affects_earnings": (
-                    selected_urn[
-                        "payoff_type"
-                    ]
-                    == "performance"
-                ),
-            }
-        )
-
-        # -------------------------------------------------------------
-        # Show outcome
-        #
-        # On the final trial, keep the full history on screen and
-        # wait for the participant to press SPACE.
-        # -------------------------------------------------------------
-
-        wait_for_continue = (
-            trial_number
-            == n_trials
-        )
-
-        show_trial_outcome(
-            win=win,
-            selected_urn=selected_urn,
-            sequence=sequence,
-            trial_number=trial_number,
-            guess=guess,
-            outcome=outcome,
-            total_trials=n_trials,
-            wait_for_continue=wait_for_continue,
-            trial_results=updated_trial_results,
-        )
-
-    # -----------------------------------------------------------------
-    # Summary
-    # -----------------------------------------------------------------
-
-    number_correct = sum(
-        row["correct"]
-        for row in trial_data
-    )
-
-    accuracy = (
-        number_correct
-        / len(trial_data)
-    )
-
-    # -----------------------------------------------------------------
-    # Block earnings
-    # -----------------------------------------------------------------
-
-    if selected_urn[
-        "urn_type"
-    ] == "ambiguous":
-
-        block_earnings = (
-            number_correct
-            * params.REWARD_PER_CORRECT_GUESS
-        )
-
-    else:
-
-        block_earnings = (
-            selected_urn[
-                "value"
-            ]
-        )
-
-    # -----------------------------------------------------------------
-    # Print rule information for debugging/piloting
-    # -----------------------------------------------------------------
-
-    print(
-        "\n"
-        + "=" * 70
-    )
-
-    print(
-        "BLOCK RULE INFORMATION"
-    )
-
-    print(
-        "=" * 70
-    )
-
-    print(
-        f"k = {k}"
-    )
-
-    print(
-        "Underlying cycle:",
-        serialise_cycle(
-            cycle
-        ),
-    )
-
-    print(
-        "Initial draws:",
-        seed_sequence,
-    )
-
-    print(
-        "Noise trials:",
-        [
-            i + 1
-            for i, is_noise
-            in enumerate(
-                noise_schedule
-            )
-            if is_noise
-        ],
-    )
-
-    print(
-        "Latent pattern predictions:",
-        [
-            row[
-                "pattern_prediction"
-            ]
-            for row
-            in trial_data
-        ],
-    )
-
-    print(
-        "Actual observed outcomes:",
-        [
-            row[
-                "outcome"
-            ]
-            for row
-            in trial_data
-        ],
-    )
-
-    print(
-        "Full observed sequence:",
-        sequence,
-    )
-
-    print(
-        "=" * 70
-        + "\n"
-    )
-
-    return {
-        "seed_sequence": (
-            seed_sequence
-        ),
-
-        "full_sequence": (
-            sequence
-        ),
-
-        "trial_data": (
-            trial_data
-        ),
-
-        "number_correct": (
-            number_correct
-        ),
-
-        "accuracy": (
-            accuracy
-        ),
-
-        "number_noise_trials": sum(
-            row[
-                "is_noise_trial"
-            ]
-            for row
-            in trial_data
-        ),
-
-        "number_pattern_trials": sum(
-            not row[
-                "is_noise_trial"
-            ]
-            for row
-            in trial_data
-        ),
-
-        "number_pattern_consistent": sum(
-            row[
-                "outcome_matches_pattern"
-            ]
-            for row
-            in trial_data
-        ),
-
-        "block_earnings": (
-            block_earnings
-        ),
-
-        "reward_per_correct_guess": (
-            params.REWARD_PER_CORRECT_GUESS
-        ),
-    }
-
-# -----------------------------------------------------------------------------
-# Ambiguous-condition schedule
-# -----------------------------------------------------------------------------
-
-
-def create_ambiguous_condition_schedule(
-    total_blocks,
-):
-    """
-    Create a balanced schedule of ambiguous conditions.
-
-    Example with 20 blocks:
-        10 known
-        10 unknown
-
-    The order is randomized.
-    """
-
-    n_known = (
-        total_blocks // 2
-    )
-
-    n_unknown = (
-        total_blocks
-        - n_known
-    )
-
-    schedule = (
-        ["known"] * n_known
-        + ["unknown"] * n_unknown
-    )
-
-    random.shuffle(
-        schedule
-    )
-
-    return schedule
-def show_block_earnings(
-    win,
-    selected_urn,
-    block_results,
-    training=False,
-):
-    """Show how much money was earned in the completed block."""
-
-    block_earnings = (
-        block_results[
-            "block_earnings"
-        ]
-    )
-
-    number_correct = (
-        block_results[
-            "number_correct"
-        ]
-    )
-
-    if training:
-
-        if selected_urn["urn_type"] == "ambiguous":
-
-            message = (
-                f"Score: {number_correct}/{params.N_TRIALS_PER_BLOCK}.\n\n"
-
-                f"In the real task, this performance would correspond to "
-                f"{block_earnings:.2f} points.\n\n"
-
-                "This was a TRAINING block, so this amount does not "
-                "count toward your final earnings.\n\n"
-
-                "Press SPACE to continue."
-            )
-
-        else:
-
-            message = (
-                "You selected the fixed-value urn.\n\n"
-
-                f"In the real task, this urn would give you "
-                f"{block_earnings:.2f} points.\n\n"
-
-                "This was a TRAINING block, so this amount does not "
-                "count toward your final earnings.\n\n"
-
-                "Press SPACE to continue."
-            )
-
-    else:
-
-        if selected_urn["urn_type"] == "ambiguous":
-
-            message = (
-                f"Score: {number_correct}/{params.N_TRIALS_PER_BLOCK}\n\n"
-
-                f"You earned {block_earnings:.2f} points\n\n"
-
-
-                "Press SPACE to continue."
-            )
-
-        else:
-
-            message = (
-                "You selected the fixed-value urn.\n\n"
-
-                f"You earned: "
-                f"{block_earnings:.2f} points\n\n"
-
-                "Your performance did not change "
-                "this amount.\n\n"
-
-                "Press SPACE to continue."
-            )
-
-    earnings_text = draw_text(
-        win=win,
-        text=message,
-        pos=(
-            0,
-            0,
-        ),
-        height=0.043,
-        wrap_width=1.15,
-        bold=False,
-    )
-
-    earnings_text.draw()
-
-    win.flip()
-
-    keys = event.waitKeys(
-        keyList=[
-            "space",
-            "escape",
-        ]
-    )
-
-    if "escape" in keys:
-
-        quit_experiment(
-            win
-        )
-# -----------------------------------------------------------------------------
-# Main task
-# -----------------------------------------------------------------------------
-
-
-def run_urn_visual_test(
-    block_number=1,
-    total_blocks=1,
-    deterministic_value=params.STAIRCASE_INITIAL_VALUE,
-    ambiguous_condition="known",
-    k=2,
-    training=False,
-):
-    """Run one complete urn block."""
-
-    win = visual.Window(
-        size=params.WINDOW_SIZE,
-        fullscr=params.FULLSCREEN,
-        color=params.BACKGROUND_COLOR,
-        units="height",
-    )
-
-    # -----------------------------------------------------------------
-    # Block start
-    # -----------------------------------------------------------------
-
-    if training and block_number == 1:
-
-        block_message = params.TRAINING_INSTRUCTIONS
-
-    elif training:
-
-        block_message = (
-            f"Training Block {block_number} "
-            f"of {total_blocks}\n\n"
-            "Press SPACE to begin."
-        )
-
-    else:
-
-        block_message = (
-            f"Block {block_number} "
-            f"of {total_blocks}\n\n"
-            "Press SPACE to begin."
-        )
-
-
-    block_text = draw_text(
-        win=win,
-        text=block_message,
-        pos=(0, 0),
-        height=0.045,
-        wrap_width=1.2,
-        bold=True,
-    )
-
-    block_text.draw()
-
-    win.flip()
-
-    keys = event.waitKeys(
-        keyList=[
-            "space",
-            "escape",
-        ]
-    )
-
-    if "escape" in keys:
-
-        quit_experiment(
-            win
-        )
-
-    # -----------------------------------------------------------------
-    # Assign urns
-    # -----------------------------------------------------------------
-
-    urn_assignment = (
-        assign_urns_to_sides(
-            deterministic_value=(deterministic_value),
-            ambiguous_condition=(ambiguous_condition),
-            k=k
-        )
-    )
-
-    # -----------------------------------------------------------------
-    # General prediction instructions
-    # -----------------------------------------------------------------
-    # -----------------------------------------------------------------
-# General prediction instructions
-# -----------------------------------------------------------------
-
-    if block_number == 1:
-
-        title = draw_text(
-            win=win,
-            text="General Instructions",
-            pos=(0, 0.36),
-            height=0.05,
-            wrap_width=1.2,
-            bold=True,
-        )
-
-        instructions = draw_text(
-            win=win,
-            text=params.URN_INSTRUCTIONS,
-            pos=(0, 0),
-            height=0.040,
-            wrap_width=1.30,
-        )
-
-        title.draw()
-        instructions.draw()
-
+                quit_experiment(win)
+            return params.GUESS_KEYS[key], float(rt)
+        if not reminder_shown and clock.getTime() >= params.REMINDER_AFTER:
+            reminder_shown = True
+            _prediction_frame(win, selected_urn, sequence, trial_results, reminder=True)
+            win.flip()
+        core.wait(0.005)
+
+
+def animate_ball_reveal(win, selected_urn, sequence, trial_number,
+                        total_trials, guess, outcome, trial_results=None,
+                        rise_duration=None, reveal_duration=None,
+                        pause_duration=None, history_duration=None):
+    """Match the practice: grey ball rises, flips, shrinks into history."""
+    before = sequence[:-1]
+    trial_results = trial_results if trial_results is not None else []
+    start = (params.SELECTED_URN_POS[0],
+             params.SELECTED_URN_POS[1]
+             + params.SELECTED_URN_SIZE[1] * params.REVEAL_START_HEIGHT_FRACTION)
+    reveal = params.OUTCOME_BALL_POS
+    finish = get_feedback_ball_position(len(sequence) - 1)
+    max_r = params.REVEAL_BALL_RADIUS
+    min_r = params.FEEDBACK_BALL_RADIUS
+    circle = visual.Circle(win=win, pos=start, radius=max_r,
+                           fillColor="#94a3b8", lineColor="black",
+                           edges=48, lineWidth=2)
+
+    def frame(pos, color, radius, width_scale=1.0):
+        _prediction_frame(win, selected_urn, before, trial_results)
+        circle.pos = pos
+        circle.fillColor = params.ball_display_color(color)
+        circle.size = (radius * 2 * max(0.01, width_scale), radius * 2)
+        circle.draw()
         win.flip()
 
-        keys = event.waitKeys(
-            keyList=[
-                "space",
-                "escape",
-            ]
-        )
+    def lerp(a, b, t):
+        return tuple(a[j] + (b[j] - a[j]) * t for j in range(2))
 
+    def ease(t):
+        return t * t * (3 - 2 * t)
+
+    rise_n = max(1, int(params.RISE_FRAMES))
+    half_n = max(1, int(params.FLIP_HALF_FRAMES))
+    history_n = max(1, int(params.HISTORY_FRAMES))
+    for i in range(rise_n + 1):
+        frame(lerp(start, reveal, ease(i / rise_n)), "#94a3b8", max_r)
+    for i in range(half_n + 1):
+        frame(reveal, "#94a3b8", max_r, 1 - i / half_n)
+    for i in range(half_n + 1):
+        frame(reveal, outcome, max_r, i / half_n)
+    for i in range(history_n + 1):
+        t = ease(i / history_n)
+        frame(lerp(reveal, finish, t), outcome, max_r + (min_r - max_r) * t)
+
+
+def show_trial_outcome(win, selected_urn, sequence, trial_number, guess,
+                       outcome, total_trials=None, wait_for_continue=False,
+                       trial_results=None):
+    if total_trials is None:
+        total_trials = params.N_TRIALS_PER_ROUND
+    trial_results = trial_results if trial_results is not None else []
+    animate_ball_reveal(win, selected_urn, sequence, trial_number,
+                        total_trials, guess, outcome, trial_results=trial_results[:-1])
+    _prediction_frame(win, selected_urn, sequence, trial_results)
+    if wait_for_continue:
+        draw_text(win, "Press SPACE to continue", (0, -0.18),
+                  height=0.024, color="#172b49").draw()
+    win.flip()
+    if wait_for_continue:
+        event.clearEvents()
+        keys = event.waitKeys(keyList=["space", "escape"])
         if "escape" in keys:
             quit_experiment(win)
+    else:
+        core.wait(params.REVEAL_DURATION + params.INTER_TRIAL_INTERVAL)
 
 
-    # -----------------------------------------------------------------
-    # Urn preference
-    # -----------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Prediction block, feedback, post-block questions.
+# -----------------------------------------------------------------------------
 
-    selected_side = collect_urn_choice(
-        win=win,
-        urn_assignment=urn_assignment,
+def run_trials(win, selected_urn, n_trials=None):
+    if n_trials is None:
+        n_trials = params.N_TRIALS_PER_ROUND
+    k = selected_urn["ambiguous_k"]
+    cycle = selected_urn["cycle"]
+    seed = generate_latent_sequence(cycle, params.N_INITIAL_DRAWS)
+    sequence = list(seed)
+    noise_schedule = create_noise_schedule(n_trials, params.PATTERN_PROBABILITY)
+    trials = []
+    for trial_number, noise in enumerate(noise_schedule, start=1):
+        history_before = list(sequence)
+        previous = [entry["correct"] for entry in trials]
+        guess, reaction_time = collect_prediction(
+            win, selected_urn, sequence, trial_number,
+            total_trials=n_trials, trial_results=previous)
+        prediction_index = params.N_INITIAL_DRAWS + trial_number - 1
+        outcome, pattern_prediction = generate_next_outcome(
+            selected_urn, prediction_index, noise)
+        sequence.append(outcome)
+        correct = guess == outcome
+        trials.append({
+            "trial_number": trial_number,
+            "guess": guess,
+            "outcome": outcome,
+            "correct": correct,
+            "response_time": reaction_time,
+            "is_noise_trial": bool(noise),
+            "pattern_prediction": pattern_prediction,
+            # This is about learning the latent rule, not the noisy outcome:
+            "guess_matches_pattern": guess == pattern_prediction,
+            "prediction_index": prediction_index,
+            "cycle_position": prediction_index % k,
+            "outcome_matches_pattern": outcome == pattern_prediction,
+            "history_before_draw": history_before,
+            "payoff_type": selected_urn["payoff_type"],
+            "prediction_affects_earnings": selected_urn["payoff_type"] == "performance",
+        })
+        show_trial_outcome(
+            win, selected_urn, sequence, trial_number, guess, outcome,
+            total_trials=n_trials, trial_results=[r["correct"] for r in trials],
+            wait_for_continue=trial_number == n_trials)
+
+    correct_count = sum(r["correct"] for r in trials)
+    earnings = (correct_count * params.REWARD_PER_CORRECT_GUESS
+                if selected_urn["urn_type"] == "ambiguous"
+                else selected_urn["value"])
+    return {
+        "seed_sequence": seed,
+        "full_sequence": list(sequence),
+        "trial_data": trials,
+        "number_correct": correct_count,
+        "accuracy": correct_count / n_trials if n_trials else 0,
+        "number_noise_trials": sum(r["is_noise_trial"] for r in trials),
+        "number_pattern_trials": sum(not r["is_noise_trial"] for r in trials),
+        "number_pattern_consistent": sum(r["outcome_matches_pattern"] for r in trials),
+        "block_earnings": earnings,
+        "reward_per_correct_guess": params.REWARD_PER_CORRECT_GUESS,
+    }
+
+
+def show_round_earnings(win, selected_urn, round_results, round_number, total_rounds, training=False):
+    """Compact circular accuracy and points like the practice-round summary."""
+    correct = round_results["number_correct"]
+    n = len(round_results["trial_data"])
+    accuracy = 100 * correct / n if n else 0
+    earned = round_results["block_earnings"]
+
+    # Progress across experimental blocks
+    draw_text(
+        win,
+        f"ROUND {round_number} OF {total_rounds}",
+        (0, 0.44),
+        height=0.022,
+        color="#64748b",
+    ).draw()
+
+    
+    # ---------------------------------------------------------
+    # Progress indicator: 18 horizontal segments
+    # ---------------------------------------------------------
+
+    max_progress_width = 0.90
+    bar_gap = 0.009
+
+    bar_width = (
+        max_progress_width - (total_rounds - 1) * bar_gap
+    ) / total_rounds
+    bar_height = 0.012
+    bar_y = 0.39
+
+    completed_color = "#789bc0"
+    remaining_color = "#c6cbd2"
+
+    total_width = (
+        total_rounds * bar_width
+        + (total_rounds - 1) * bar_gap
     )
 
-    selected_urn = urn_assignment[
-        selected_side
-    ]
+    start_x = -total_width / 2 + bar_width / 2
 
+    for i in range(total_rounds):
+        x = start_x + i * (bar_width + bar_gap)
 
-    # -----------------------------------------------------------------
-    # Animate selected urn
-    # -----------------------------------------------------------------
+        color = (
+            completed_color
+            if i < round_number
+            else remaining_color
+        )
 
-    animate_selected_urn_transition(
-        win=win,
-        selected_urn=selected_urn,
-        selected_side=selected_side,
-        urn_assignment=urn_assignment,
-    )
+        bar = visual.Rect(
+            win,
+            pos=(x, bar_y),
+            width=bar_width,
+            height=bar_height,
+            fillColor=color,
+            lineColor=None
+        )
+        bar.draw()
 
-
-    # -----------------------------------------------------------------
-    # Wait for SPACE before prediction trials begin
-    # -----------------------------------------------------------------
-
-    draw_selected_open_urn(
-        win=win,
-        selected_urn=selected_urn,
-    )
-
-    continue_text = draw_text(
-        win=win,
-        text="Press SPACE to start",
-        pos=(0, 0.12),
-        height=0.044,
-        bold=True,
-    )
-
-    continue_text.draw()
-
+    draw_text(win, "ROUND COMPLETE", (0, 0.33), height=0.025,
+              bold=True, color="#64748b").draw()
+    cx, cy, radius = -0.17, 0.015, 0.103
+    visual.Circle(win, pos=(cx, cy), radius=radius, fillColor=None,
+                  lineColor="#aab8ca", lineWidth=11, edges=120).draw()
+    if accuracy > 0:
+        fraction = accuracy / 100
+        count = max(30, int(240 * fraction))
+        vertices = [(cx + radius * math.cos(math.pi / 2 - 2 * math.pi * fraction * i / count),
+                     cy + radius * math.sin(math.pi / 2 - 2 * math.pi * fraction * i / count))
+                    for i in range(count + 1)]
+        visual.ShapeStim(win=win, vertices=vertices, closeShape=False,
+                         fillColor=None, lineColor="#2e7bd4", lineWidth=11).draw()
+    draw_text(win, f"{accuracy:.0f}%", (cx, cy + 0.012),
+              height=0.048, bold=True).draw()
+    draw_text(win, "correct", (cx, cy - 0.038),
+              height=0.022, color="#64748b").draw()
+    visual.Line(win, start=(0.015, -0.145), end=(0.015, 0.05),
+                lineColor="#b7c2d0", lineWidth=1.5).draw()
+    draw_text(win, f"{earned:g} points", (0.205, 0.032),
+              height=0.052, bold=True).draw()
+    draw_text(win, "earned this round", (0.205, -0.025),
+              height=0.023, color="#64748b").draw()
+    draw_text(win, "Press SPACE to continue", (0, -0.35),
+              height=0.024, color="#576a82").draw()
     win.flip()
-
     event.clearEvents()
-
-    keys = event.waitKeys(
-        keyList=[
-            "space",
-            "escape",
-        ]
-    )
-
+    keys = event.waitKeys(keyList=["space", "escape"])
     if "escape" in keys:
         quit_experiment(win)
 
 
-    # -----------------------------------------------------------------
-    # Prediction trials
-    # -----------------------------------------------------------------
+def create_ambiguous_condition_schedule(total_rounds):
+    """Compatibility helper: balanced known/unknown only."""
+    if total_rounds % 2:
+        raise ValueError("Exact 50% requires an even number of rounds")
+    schedule = ["known"] * (total_rounds // 2) + ["unknown"] * (total_rounds // 2)
+    random.shuffle(schedule)
+    return schedule
+
+
+def run_urn_visual_test(round_number=1, total_rounds=1,
+                        deterministic_value=None, ambiguous_condition="known",
+                        k=2, training=False, win=None):
+    """Run a complete block, returning both choices and post-block responses."""
+    if deterministic_value is None:
+        deterministic_value = params.STAIRCASE_INITIAL_VALUE
+    owns_window = win is None
+    if owns_window:
+        win = visual.Window(size=params.WINDOW_SIZE, fullscr=params.FULLSCREEN, screen=getattr(params, "SCREEN_INDEX", 1),
+                            color=params.BACKGROUND_COLOR, units="height",monitor=params.MONITOR_NAME, gammaErrorPolicy="warn")
+    try:
+        if round_number == 1:
+            draw_text(win,"New parameters", (0, 0.2), #before 0.13
+                      height=0.050, bold=True, color="#172b49").draw()
+            draw_text(win, params.URN_INSTRUCTIONS, (0, -0.025),
+                      height=0.026, wrap_width=1.18, color="#334155").draw()
+            win.flip()
+            event.clearEvents()
+            keys = event.waitKeys(keyList=["space", "escape"])
+            if "escape" in keys:
+                quit_experiment(win)
+
+        # A fixation precedes every choice, matching guided practice.
+        draw_text(win, "+", (0, 0), height=0.070,
+                  bold=True, color="#172b49").draw()
+        win.flip()
+        core.wait(0.35)
+        assignment = assign_urns_to_sides(deterministic_value, ambiguous_condition, k)
+        side, choice_rt = collect_urn_choice(win, assignment)
+        chosen = assignment[side]
+        animate_selected_urn_transition(win, chosen, side, assignment)
+        block = run_trials(win, chosen)
+        show_round_earnings(win, chosen, block, round_number, total_rounds, training=training)
+
+        questions = run_post_block_questions(win=win, selected_urn=chosen)
+        if questions is None:
+            questions = {}
+        if not isinstance(questions, dict):
+            raise TypeError("questions_task.run_post_block_questions must return a dict")
+        estimated_cycle = questions.get("estimated_cycle")
+        reconstructed = (cycles_match(chosen["cycle"], estimated_cycle)
+                         if estimated_cycle is not None else None)
+        result = dict(block)
+        result.update({
+            "round_number": round_number,
+            "k": k,
+            "ambiguous_condition": ambiguous_condition,
+            "deterministic_value": deterministic_value,
+            "selected_side": side,
+            "selected_urn_type": chosen["urn_type"],
+            "selected_urn_name": chosen["urn_name"],
+            "selected_condition": chosen["condition"],
+            "selected_ambiguous_k": k,
+            "selected_cycle": serialise_cycle(chosen["cycle"]),
+            "selected_participant_knows_k": chosen["participant_knows_k"],
+            "selected_value": chosen["value"],
+            "selected_payoff_type": chosen["payoff_type"],
+            "urn_choice_rt": choice_rt,
+            "left_urn_type": assignment["left"]["urn_type"],
+            "left_urn_name": assignment["left"]["urn_name"],
+            "right_urn_type": assignment["right"]["urn_type"],
+            "right_urn_name": assignment["right"]["urn_name"],
+            "estimated_k": questions.get("estimated_k"),
+            "estimated_cycle": estimated_cycle,
+            "estimated_cycle_serialised": serialise_cycle(estimated_cycle),
+            "estimated_cycle_correct": reconstructed,
+            "post_block_confidence": questions.get("confidence"),
+            "post_block_liking": questions.get("liking"),
+            "post_block_difficulty": questions.get("difficulty"),
+            "post_block_mental_effort": questions.get("mental_effort"),
+            "question_results": questions,
+        })
+        return result
+    finally:
+        if owns_window:
+            _clear_visual_cache(win)
+            win.close()
+
+
+# -----------------------------------------------------------------------------
+# ONE global staircase: step changes after 6 and 12 blocks, not on reversals.
+# -----------------------------------------------------------------------------
+
+
+def update_staircase(staircase, choice, round_number, k_value=None):
+    """Update the deterministic reward after each round."""
+
+    if choice not in ("ambiguous", "deterministic"):
+        raise ValueError("Invalid urn choice")
+
+    block_number = (
+        (round_number - 1) // params.ROUNDS_PER_BLOCK
+    ) + 1
 
-    block_results = run_trials(
-        win=win,
-        selected_urn=selected_urn,
-    )
-    # -----------------------------------------------------------------
-    # Show money earned
-    # -----------------------------------------------------------------
+    step = params.STAIRCASE_STEP_SIZES[block_number - 1]
 
-    show_block_earnings(
-        win=win,
-        selected_urn=selected_urn,
-        block_results=block_results,
-        training=training
-    )
+    direction = 1 if choice == "ambiguous" else -1
 
-    # -----------------------------------------------------------------
-    # Post-block questionnaire
-    # -----------------------------------------------------------------
-
-    question_results = (
-        run_post_block_questions(
-            win=win,
-            selected_urn=selected_urn,
-        )
-    )
-
-    # -----------------------------------------------------------------
-    # Score inferred cycle
-    # -----------------------------------------------------------------
-
-    estimated_cycle = (
-        question_results.get(
-            "estimated_cycle"
-        )
-    )
-
-    if (
-        selected_urn.get(
-            "cycle"
-        )
-        is not None
-        and estimated_cycle is not None
-    ):
-
-        estimated_cycle_correct = (
-            cycles_match(
-                true_cycle=selected_urn[
-                    "cycle"
-                ],
-                response_cycle=estimated_cycle,
-            )
-        )
-
-    else:
-
-        estimated_cycle_correct = None
-
-    # -----------------------------------------------------------------
-    # Useful debug output
-    # -----------------------------------------------------------------
-
-    print(
-        "\n"
-        + "=" * 70
-    )
-
-    print(
-        f"BLOCK {block_number}"
-    )
-
-    print(
-        "=" * 70
-    )
-
-    print(
-        "Ambiguous condition:",
-        ambiguous_condition,
-    )
-
-    print(
-        "Deterministic value:",
-        deterministic_value,
-    )
-
-    print(
-        "Selected side:",
-        selected_side,
-    )
-
-    print(
-        "Selected urn type:",
-        selected_urn[
-            "urn_type"
-        ],
-    )
-
-    if (
-        selected_urn.get(
-            "cycle"
-        )
-        is not None
-    ):
-
-        print(
-            "TRUE CYCLE:",
-            serialise_cycle(
-                selected_urn[
-                    "cycle"
-                ]
-            ),
-        )
-
-    if estimated_cycle is not None:
-
-        print(
-            "PARTICIPANT ESTIMATED CYCLE:",
-            serialise_cycle(
-                estimated_cycle
-            ),
-        )
-
-    print(
-        "ESTIMATED CYCLE CORRECT:",
-        estimated_cycle_correct,
-    )
-
-    print(
-        "=" * 70
-        + "\n"
-    )
-
-    win.close()
-
-    # -----------------------------------------------------------------
-    # Results
-    # -----------------------------------------------------------------
-
-    return {
-        # -------------------------------------------------------------
-        # Block condition
-        # -------------------------------------------------------------
-
-        "ambiguous_condition": (
-            ambiguous_condition
-        ),
-
-        "deterministic_value": (
-            deterministic_value
-        ),
-
-        # -------------------------------------------------------------
-        # Selected urn
-        # -------------------------------------------------------------
-
-        "selected_side": (
-            selected_side
-        ),
-
-        "selected_urn_type": (
-            selected_urn[
-                "urn_type"
-            ]
-        ),
-
-        "selected_urn_name": (
-            selected_urn[
-                "urn_name"
-            ]
-        ),
-
-        "selected_condition": (
-            selected_urn.get(
-                "condition"
-            )
-        ),
-
-        "selected_ambiguous_k": (
-            selected_urn.get(
-                "ambiguous_k"
-            )
-        ),
-
-        "selected_cycle": (
-            serialise_cycle(
-                selected_urn[
-                    "cycle"
-                ]
-            )
-            if selected_urn.get(
-                "cycle"
-            )
-            is not None
-            else None
-        ),
-
-        "selected_participant_knows_k": (
-            selected_urn.get(
-                "participant_knows_k"
-            )
-        ),
-
-        "selected_value": (
-            selected_urn.get(
-                "value"
-            )
-        ),
-
-        "selected_payoff_type": (
-            selected_urn.get(
-                "payoff_type"
-            )
-        ),
-
-        # -------------------------------------------------------------
-        # Sequence data
-        # -------------------------------------------------------------
-
-        "draw_sequence": (
-            block_results[
-                "full_sequence"
-            ]
-        ),
-
-        "seed_sequence": (
-            block_results[
-                "seed_sequence"
-            ]
-        ),
-
-        "trial_data": (
-            block_results[
-                "trial_data"
-            ]
-        ),
-
-        "number_correct": (
-            block_results[
-                "number_correct"
-            ]
-        ),
-
-        "accuracy": (
-            block_results[
-                "accuracy"
-            ]
-        ),
-        "block_earnings": (
-            block_results[
-                "block_earnings"
-            ]
-        ),
-
-        "reward_per_correct_guess": (
-            block_results[
-                "reward_per_correct_guess"
-            ]
-        ),
-
-        "number_pattern_trials": (
-            block_results[
-                "number_pattern_trials"
-            ]
-        ),
-
-        "number_noise_trials": (
-            block_results[
-                "number_noise_trials"
-            ]
-        ),
-
-        "number_pattern_consistent": (
-            block_results[
-                "number_pattern_consistent"
-            ]
-        ),
-
-        # -------------------------------------------------------------
-        # Left urn
-        # -------------------------------------------------------------
-
-        "left_urn_type": (
-            urn_assignment[
-                "left"
-            ][
-                "urn_type"
-            ]
-        ),
-
-        "left_urn_name": (
-            urn_assignment[
-                "left"
-            ][
-                "urn_name"
-            ]
-        ),
-
-        "left_condition": (
-            urn_assignment[
-                "left"
-            ].get(
-                "condition"
-            )
-        ),
-
-        "left_ambiguous_k": (
-            urn_assignment[
-                "left"
-            ].get(
-                "ambiguous_k"
-            )
-        ),
-
-        "left_cycle": (
-            serialise_cycle(
-                urn_assignment[
-                    "left"
-                ][
-                    "cycle"
-                ]
-            )
-            if urn_assignment[
-                "left"
-            ].get(
-                "cycle"
-            )
-            is not None
-            else None
-        ),
-
-        "left_participant_knows_k": (
-            urn_assignment[
-                "left"
-            ].get(
-                "participant_knows_k"
-            )
-        ),
-
-        "left_value": (
-            urn_assignment[
-                "left"
-            ].get(
-                "value"
-            )
-        ),
-
-        "left_payoff_type": (
-            urn_assignment[
-                "left"
-            ].get(
-                "payoff_type"
-            )
-        ),
-
-        # -------------------------------------------------------------
-        # Right urn
-        # -------------------------------------------------------------
-
-        "right_urn_type": (
-            urn_assignment[
-                "right"
-            ][
-                "urn_type"
-            ]
-        ),
-
-        "right_urn_name": (
-            urn_assignment[
-                "right"
-            ][
-                "urn_name"
-            ]
-        ),
-
-        "right_condition": (
-            urn_assignment[
-                "right"
-            ].get(
-                "condition"
-            )
-        ),
-
-        "right_ambiguous_k": (
-            urn_assignment[
-                "right"
-            ].get(
-                "ambiguous_k"
-            )
-        ),
-
-        "right_cycle": (
-            serialise_cycle(
-                urn_assignment[
-                    "right"
-                ][
-                    "cycle"
-                ]
-            )
-            if urn_assignment[
-                "right"
-            ].get(
-                "cycle"
-            )
-            is not None
-            else None
-        ),
-
-        "right_participant_knows_k": (
-            urn_assignment[
-                "right"
-            ].get(
-                "participant_knows_k"
-            )
-        ),
-
-        "right_value": (
-            urn_assignment[
-                "right"
-            ].get(
-                "value"
-            )
-        ),
-
-        "right_payoff_type": (
-            urn_assignment[
-                "right"
-            ].get(
-                "payoff_type"
-            )
-        ),
-
-        # -------------------------------------------------------------
-        # Post-block questions
-        # -------------------------------------------------------------
-
-        "estimated_k": (
-            question_results.get(
-                "estimated_k"
-            )
-        ),
-
-        "estimated_cycle": (
-            estimated_cycle
-        ),
-
-        "estimated_cycle_serialised": (
-            serialise_cycle(
-                estimated_cycle
-            )
-            if estimated_cycle is not None
-            else None
-        ),
-
-        "estimated_cycle_correct": (
-            estimated_cycle_correct
-        ),
-
-        "post_block_confidence": (
-            question_results.get(
-                "confidence"
-            )
-        ),
-
-        "post_block_liking": (
-            question_results.get(
-                "liking"
-            )
-        ),
-
-        "post_block_difficulty": (
-            question_results.get(
-                "difficulty"
-            )
-        ),
-
-        "post_block_mental_effort": (
-            question_results.get(
-                "mental_effort"
-            )
-        ),
-    }
-
-########STAIRCASE 
-def update_staircase(
-    staircase,
-    choice,
-    k_value,
-    min_value=params.STAIRCASE_MIN_VALUE,
-    max_value=params.STAIRCASE_MAX_VALUE,
-):
-    """
-    Update the deterministic monetary value for one k-specific staircase.
-
-    Each k value has its own staircase.
-
-    If participant chooses ambiguous:
-        increase deterministic value
-
-    If participant chooses deterministic:
-        decrease deterministic value
-
-    After a reversal:
-        reduce step size
-    """
-
-    step_sizes = params.STAIRCASE_STEP_SIZES
-
-    previous_choice = staircase[
-        "previous_choice"
-    ]
-
-    # -------------------------------------------------------------
-    # Detect reversal
-    # -------------------------------------------------------------
-
-    if (
-        previous_choice is not None
-        and choice != previous_choice
-    ):
-
-        staircase[
-            "reversals"
-        ].append(
-            {
-                "k": k_value,
-                "value": staircase[
-                    "value"
-                ],
-            }
-        )
-
-        staircase[
-            "step_index"
-        ] = min(
-            staircase[
-                "step_index"
-            ] + 1,
-            len(step_sizes) - 1,
-        )
-
-    # -------------------------------------------------------------
-    # Current step size
-    # -------------------------------------------------------------
-
-    step = step_sizes[
-        staircase[
-            "step_index"
-        ]
-    ]
-
-    # -------------------------------------------------------------
-    # Update deterministic value
-    # -------------------------------------------------------------
-
-    if choice == "ambiguous":
-
-        staircase[
-            "value"
-        ] += step
-
-    elif choice == "deterministic":
-
-        staircase[
-            "value"
-        ] -= step
-
-    else:
-
-        raise ValueError(
-            "choice must be "
-            "'ambiguous' or 'deterministic'"
-        )
-
-    # -------------------------------------------------------------
-    # Keep value inside allowed range
-    # -------------------------------------------------------------
-
-    staircase[
-        "value"
-    ] = max(
-        min_value,
+    staircase["value"] = max(
+        params.STAIRCASE_MIN_VALUE,
         min(
-            max_value,
-            staircase[
-                "value"
-            ],
-        ),
+            params.STAIRCASE_MAX_VALUE,
+            staircase["value"] + direction * step
+        )
     )
 
-    # -------------------------------------------------------------
-    # Store staircase state
-    # -------------------------------------------------------------
-
-    staircase[
-        "previous_choice"
-    ] = choice
-
-    staircase[
-        "k"
-    ] = k_value
+    staircase["previous_choice"] = choice
 
     return staircase
 
 
+
 if __name__ == "__main__":
-
-    results = run_urn_visual_test()
-
-    print(
-        results
-    )
+    print(run_urn_visual_test())

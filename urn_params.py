@@ -4,10 +4,16 @@ from pathlib import Path
 # -----------------------------------------------------------------------------
 # Trial settings
 # -----------------------------------------------------------------------------
+MONITOR_NAME="wahrnehmen_monitor"
+# 20 ball-color predictions in each round
+N_TRIALS_PER_ROUND = 20
 
-# Number of prediction trials after the initial displayed draws.
-N_TRIALS_PER_BLOCK = 4
-N_BLOCKS = 5
+# 18 rounds in the main experiment
+N_ROUNDS = 2
+
+# 3 staircase blocks, each containing 6 rounds
+ROUNDS_PER_BLOCK = 6
+N_BLOCKS = N_ROUNDS // ROUNDS_PER_BLOCK
 # -----------------------------------------------------------------------------
 # Monetary rewards
 # -----------------------------------------------------------------------------
@@ -15,7 +21,7 @@ N_BLOCKS = 5
 REWARD_PER_CORRECT_GUESS = 4 #if euros: 0.20
 
 MAX_AMBIGUOUS_REWARD = (
-    N_TRIALS_PER_BLOCK
+    N_TRIALS_PER_ROUND
     * REWARD_PER_CORRECT_GUESS
 )
 
@@ -34,9 +40,9 @@ RANDOM_PROBABILITY = (
 )
 
 N_RANDOM_DRAWS =(
-    N_TRIALS_PER_BLOCK
+    N_TRIALS_PER_ROUND
     - round(
-        N_TRIALS_PER_BLOCK
+        N_TRIALS_PER_ROUND
         * PATTERN_PROBABILITY
     )
 )
@@ -60,6 +66,17 @@ BALL_COLORS = [
     "blue",
     "magenta",
 ]
+# Colors displayed to participants
+BALL_BLUE = "#5379B8"
+BALL_MAGENTA = "#B966A8"
+
+BALL_DISPLAY_COLORS = {
+    "blue": BALL_BLUE,
+    "magenta": BALL_MAGENTA,
+}
+
+def ball_display_color(color):
+    return BALL_DISPLAY_COLORS.get(color, color)
 
 
 # For now the experiment uses 1-, 2- and 3-cycle rules.
@@ -82,13 +99,12 @@ CONDITION_UNKNOWN_X_UNKNOWN_F = "unknown_k"
 
 
 KNOWN_X_DESCRIPTION = (
-    "The next ball depends on the previous {k} draws."
+    "Sequence length: {k}"
 )
 
 
 UNKNOWN_X_DESCRIPTION = (
-    "The next ball depends on previous draws.\n"
-    "You are not told how many draws are relevant."
+    "Sequence length: less than 4"
 )
 
 
@@ -98,8 +114,9 @@ UNKNOWN_X_DESCRIPTION = (
 
 EXPERIMENT_NAME = "k-cycle-pretty-urn-task"
 
-WINDOW_SIZE = [1200, 800]
-FULLSCREEN = False
+WINDOW_SIZE = [1920, 1080]
+FULLSCREEN = True
+SCREEN_INDEX = 1
 
 BACKGROUND_COLOR = "lightgrey"
 
@@ -160,8 +177,8 @@ SELECTED_URN_POS = (
 )
 
 SELECTED_URN_SIZE = (
-    0.72,
-    0.72,
+    0.62,
+    0.62,
 )
 
 
@@ -181,15 +198,14 @@ PRETTY_URN_NAMES = [
 # -----------------------------------------------------------------------------
 TRAINING_INSTRUCTIONS = (
     "Training Phase\n\n"
-    "You will now complete 5 practice blocks.\n\n"
+    "You will now complete practice rounds.\n\n"
     "Practice results do not affect your final earnings.\n\n"
     "Press SPACE to begin."
 )
 
 URN_INSTRUCTIONS = (
-    "You will play a game in which you will repeatedly draw balls from an urn you have previously chosen.\n\n"
-    f"Each block has {N_TRIALS_PER_BLOCK} balls that are either blue or magenta.\n"
-    f"Exactly {N_RANDOM_DRAWS} draws are random; the others follow a sequence.\n\n\n\n"
+    f"Each round has {N_TRIALS_PER_ROUND} balls that are either blue (B) or magenta (M).\n"
+    f"Exactly {N_RANDOM_DRAWS} draws are flipped; the others follow a sequence.\n\n\n\n"
     "Press SPACE to continue."
 )
 
@@ -251,7 +267,7 @@ KNOWN_SEQUENCE_LENGTH_VALUE = (
 )
 
 UNKNOWN_SEQUENCE_LENGTH_VALUE = (
-    "unknown"
+    "less than 4"
 )
 
 
@@ -377,7 +393,7 @@ TRIAL_INSTRUCTION_WRAP_WIDTH = 1.15
 
 GUESS_PROMPT_POS = (
     0,
-    0.035,
+    0.025,
 )
 
 GUESS_PROMPT_HEIGHT = 0.037
@@ -385,7 +401,7 @@ GUESS_PROMPT_HEIGHT = 0.037
 
 OUTCOME_BALL_POS = (
     0,
-    -0.06,
+    -0.10,
 )
 
 OUTCOME_BALL_RADIUS = 0.055
@@ -403,8 +419,8 @@ RESULT_TEXT_HEIGHT = 0.040
 # Horizontal divider lines
 # -----------------------------------------------------------------------------
 
-TOP_DIVIDER_Y = 0.275
-BOTTOM_DIVIDER_Y = 0.115
+TOP_DIVIDER_Y = 0.225
+BOTTOM_DIVIDER_Y = 0.065
 
 DIVIDER_WIDTH = 0.72
 
@@ -420,18 +436,18 @@ SEQUENCE_TITLE = "Draw history:"
 
 
 SEQUENCE_TITLE_POS = (
-    -0.25,
-    0.195,
+    -0.55,
+    0.2,
 )
 
 SEQUENCE_TITLE_HEIGHT = 0.028
 
 
-FEEDBACK_START_X = -0.15
-FEEDBACK_START_Y = 0.242
+FEEDBACK_START_X = -0.22
+FEEDBACK_START_Y = 0.195
 
 
-FEEDBACK_SPACING_X = 0.05
+FEEDBACK_SPACING_X = 0.048
 FEEDBACK_SPACING_Y = 0.050
 
 
@@ -440,7 +456,45 @@ FEEDBACK_BALL_RADIUS = 0.02
 FEEDBACK_BALLS_PER_ROW = 10
 
 #####STAIRCASE PARAMETERS#####
-STAIRCASE_INITIAL_VALUE = 40 #2.00 if in euros
-STAIRCASE_MAX_VALUE = 100 #if euros: 5.00
-STAIRCASE_MIN_VALUE = 20# if euros:1.00
-STAIRCASE_STEP_SIZES =[10,5,2]# if euros [0.50, 0.25, 0.10]
+# ONE shared staircase for all known/unknown conditions.
+# 20 trials x 4 points = 80-point maximum possible variable reward.
+STAIRCASE_INITIAL_VALUE = 40
+STAIRCASE_MIN_VALUE = 0
+STAIRCASE_MAX_VALUE = MAX_AMBIGUOUS_REWARD
+STAIRCASE_STEP_SIZES = (20, 10, 5)
+
+# Opt in to the separate guided practice before the 18 actual blocks.
+RUN_PRACTICE_BEFORE_MAIN = True
+
+# Practice-style animation parameters for the MAIN urn task.
+REVEAL_BALL_RADIUS = 0.12
+REVEAL_START_HEIGHT_FRACTION = 0.35
+RISE_FRAMES = 1
+FLIP_HALF_FRAMES = 2
+HISTORY_FRAMES = 1
+
+# Practice-style minimalist display.
+
+# Practice-style minimalist display.
+INFO_LABEL_X = -0.66
+INFO_BALL_START_X = -0.46
+
+# Row positions
+URN_TYPE_Y = 0.422
+INFO_ROW_Y = (0.374, 0.326)
+
+# Urn type description alignment
+URN_TYPE_VALUE_OFFSET_X = -0.01
+
+INFO_TEXT_HEIGHT = 0.019
+INFO_BALL_RADIUS = 0.007
+INFO_BALL_SPACING = 0.023
+INFO_COLOR = "#253f62"
+INFO_EMPTY_COLOR = "#536e8c"
+
+SCORE_BAR_LEFT_X = -0.62
+SCORE_BAR_RIGHT_X = 0.45
+SCORE_BAR_Y = 0.26
+SCORE_BAR_HEIGHT = 0.035
+SCORE_ACCURACY_X = 0.58
+REMINDER_AFTER = 3.0

@@ -1,10 +1,12 @@
 # params.py
+import urn_params as params
 
 # -----------------------------
 # General experiment settings
 # -----------------------------
 
 EXPERIMENT_NAME = "ambiguity-task"
+MONITOR_NAME = params.MONITOR_NAME
 
 WINDOW_SIZE = [1200, 800]
 FULLSCREEN = False

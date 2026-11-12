@@ -1,6 +1,13 @@
 from psychopy import visual, event, core
 
 import questions_params as qparams
+import urn_params as params
+
+# Set True to run this questionnaire on its own with a dummy urn.
+# When called by urn_task.py, real urn details are always used.
+TEST_MODE = True
+TEST_K = 3
+TEST_PARTICIPANT_KNOWS_K = False
 
 
 # -----------------------------------------------------------------------------
@@ -44,612 +51,423 @@ def quit_experiment(win):
 # -----------------------------------------------------------------------------
 
 
-def ask_key_question(
-    win,
-    question_text,
-    valid_keys,
-    question_pos=None,
-    question_height=None,
-    question_wrap_width=None,
-):
-    """Ask a keyboard-response question."""
+def _number_keys(values):
+    return [str(v) for v in values] + [f"num_{v}" for v in values]
 
-    event.clearEvents()
+
+def _get_number(key):
+    return int(key.replace("num_", ""))
+
+
+def ask_key_question(
+    win, question_text, valid_keys,
+    question_pos=None, question_height=None, question_wrap_width=None,
+):
+    """Show selectable number options; SPACE confirms the highlighted value."""
+    values = sorted({_get_number(k) for k in valid_keys
+                     if k.isdigit() or k.startswith("num_")})
+    if not values:
+        raise ValueError("ask_key_question requires numerical valid_keys")
 
     question = draw_text(
-        win=win,
-        text=question_text,
-        pos=(
-            question_pos
-            or qparams.QUESTION_POS
-        ),
-        height=(
-            question_height
-            or qparams.QUESTION_HEIGHT
-        ),
-        wrap_width=(
-            question_wrap_width
-            or qparams.QUESTION_WRAP_WIDTH
-        ),
+        win, question_text,
+        question_pos if question_pos is not None else qparams.QUESTION_POS,
+        height=question_height if question_height is not None else qparams.QUESTION_HEIGHT,
+        wrap_width=question_wrap_width if question_wrap_width is not None else qparams.QUESTION_WRAP_WIDTH,
         bold=True,
     )
+    option_y = -0.08
+    spacing = 0.20
+    start_x = -spacing * (len(values) - 1) / 2
+    options = []
+    for index, value in enumerate(values):
+        x = start_x + index * spacing
+        circle = visual.Circle(win, radius=0.040, pos=(x, option_y),
+                               fillColor="white", lineColor="black", lineWidth=2)
+        number = draw_text(win, str(value), (x, option_y), height=0.032, bold=True)
+        options.append((value, circle, number))
+    prompt = draw_text(win, "Press 1–4 to select an answer.",
+                       (0, -0.30), height=0.027)
+    selected = None
 
-    question.draw()
-
-    win.flip()
-
-    keys = event.waitKeys(
-        keyList=(
-            valid_keys
-            + ["escape"]
-        )
-    )
-
-    if "escape" in keys:
-
-        quit_experiment(
-            win
-        )
-
-    return keys[0]
-
-
-# -----------------------------------------------------------------------------
-# Likert questions
-# -----------------------------------------------------------------------------
-
-
-def ask_likert_question(
-    win,
-    question_text,
-    labels,
-):
-    """
-    Ask a five-point Likert question.
-
-    The selected response is briefly highlighted before
-    moving to the next question.
-    """
-
-    event.clearEvents()
-
-    selected_response = None
-
-    while True:
-
-        question = draw_text(
-            win=win,
-            text=question_text,
-            pos=qparams.QUESTION_POS,
-            height=qparams.QUESTION_HEIGHT,
-            wrap_width=qparams.QUESTION_WRAP_WIDTH,
-            bold=True,
-        )
-
+    def render():
         question.draw()
-
-        for i, value in enumerate(
-            qparams.LIKERT_VALUES
-        ):
-
-            x_pos = (
-                qparams.LIKERT_X_POSITIONS[i]
-            )
-
-            # ---------------------------------------------------------
-            # Highlight selected answer
-            # ---------------------------------------------------------
-
-            if selected_response == value:
-                fill_color = "darkgrey"
-                line_width = 3
-            else:
-                fill_color = None
-                line_width = 2
-
-            circle = visual.Circle(
-                win=win,
-                radius=qparams.LIKERT_RADIUS,
-                pos=(
-                    x_pos,
-                    qparams.LIKERT_Y,
-                ),
-                fillColor=fill_color,
-                lineColor="black",
-                lineWidth=line_width,
-            )
-
-            number = visual.TextStim(
-                win=win,
-                text=str(value),
-                pos=(
-                    x_pos,
-                    qparams.LIKERT_Y,
-                ),
-                color="black",
-                height=0.035,
-                bold=True,
-                font="Arial",
-            )
-
-            label = visual.TextStim(
-                win=win,
-                text=labels[i],
-                pos=(
-                    x_pos,
-                    qparams.LABEL_Y,
-                ),
-                color="black",
-                height=qparams.LABEL_HEIGHT,
-                wrapWidth=qparams.LABEL_WRAP_WIDTH,
-                alignText="center",
-                font="Arial",
-            )
-
+        for value, circle, number in options:
+            circle.fillColor = "darkgrey" if selected == value else "white"
             circle.draw()
             number.draw()
-            label.draw()
-
-        bottom = draw_text(
-            win=win,
-            text="Press a number from 1 to 5.",
-            pos=qparams.BOTTOM_TEXT_POS,
-            height=qparams.BOTTOM_TEXT_HEIGHT,
-        )
-
-        bottom.draw()
-
+        prompt.text = ("Press SPACE to continue." if selected is not None
+                       else "Press a number to select an answer.")
+        prompt.draw()
         win.flip()
 
-        keys = event.waitKeys(
-            keyList=(
-                qparams.LIKERT_KEYS
-                + ["escape"]
-            )
+    event.clearEvents()
+    render()
+    while True:
+        key = event.waitKeys(keyList=_number_keys(values) + ["space", "escape"])[0]
+        if key == "escape":
+            quit_experiment(win)
+        if key == "space":
+            if selected is not None:
+                return str(selected)
+        else:
+            selected = _get_number(key)
+            render()
+
+
+
+def ask_likert_question(win, question_text, labels):
+    """Five-point scale with ticks and rectangular selection marker."""
+
+    question = draw_text(
+        win, question_text, (0, 0.22),
+        height=qparams.QUESTION_HEIGHT,
+        wrap_width=qparams.QUESTION_WRAP_WIDTH,
+        bold=True
+    )
+
+    values = list(qparams.LIKERT_VALUES)
+    positions = list(qparams.LIKERT_X_POSITIONS)
+
+    # Adjustable layout
+    scale_y = -0.06
+    label_y = -0.17
+    number_y = scale_y + 0.085
+    tick_height = 0.055
+    marker_width = 0.025
+    marker_height = 0.075
+
+    scale_line = visual.Line(
+        win,
+        start=(positions[0], scale_y),
+        end=(positions[-1], scale_y),
+        lineColor="black",
+        lineWidth=2
+    )
+
+    items = []
+
+    for value, x, label in zip(values, positions, labels):
+        tick = visual.Line(
+            win,
+            start=(x, scale_y - tick_height / 2),
+            end=(x, scale_y + tick_height / 2),
+            lineColor="black",
+            lineWidth=2
         )
 
-        key = keys[0]
+        number = draw_text(
+            win, str(value), (x, number_y),
+            height=0.032, bold=True
+        )
+
+        description = draw_text(
+            win, label, (x, label_y),
+            height=qparams.LABEL_HEIGHT,
+            wrap_width=qparams.LABEL_WRAP_WIDTH
+        )
+
+        items.append((value, tick, number, description))
+
+    marker = visual.Rect(
+        win,
+        width=marker_width,
+        height=marker_height,
+        pos=(0, scale_y),
+        fillColor="white",
+        lineColor="black",
+        lineWidth=2
+    )
+
+    footer = draw_text(
+        win, "Press a number from 1 to 5.",
+        (0, -0.38), height=0.027
+    )
+
+    selected = None
+
+    def render():
+        question.draw()
+        scale_line.draw()
+
+        for value, tick, number, description in items:
+            tick.draw()
+            number.draw()
+            description.draw()
+
+        if selected is not None:
+            marker.pos = (positions[values.index(selected)], scale_y)
+            marker.draw()
+
+        footer.text = (
+            "Press SPACE to continue."
+            if selected is not None
+            else "Press a number from 1 to 5."
+        )
+        footer.draw()
+        win.flip()
+
+    event.clearEvents()
+    render()
+
+    while True:
+        key = event.waitKeys(
+            keyList=_number_keys(values) + ["space", "escape"]
+        )[0]
 
         if key == "escape":
-            quit_experiment(
-                win
-            )
+            quit_experiment(win)
 
-        # -------------------------------------------------------------
-        # Convert keyboard / numpad response
-        # -------------------------------------------------------------
+        if key == "space" and selected is not None:
+            return selected
 
-        if key.startswith("num_"):
-            selected_response = int(
-                key.replace(
-                    "num_",
-                    "",
-                )
-            )
+        if key != "space":
+            selected = _get_number(key)
+            render()
+
+
+
+# -----------------------------------------------------------------------------
+# Cycle reconstruction (same color options as the urn prediction task)
+# -----------------------------------------------------------------------------
+
+
+def draw_cycle_response(win, responses, total_slots):
+    """
+    Draw empty outlined balls that fill as the participant
+    enters blue or magenta responses.
+    """
+
+    spacing = qparams.CYCLE_BALL_SPACING
+    radius = qparams.CYCLE_BALL_RADIUS
+    y = qparams.CYCLE_BALL_Y
+
+    start_x = -spacing * (total_slots - 1) / 2
+    SOFT_COLORS = {
+    "blue": params.BALL_BLUE,
+    "magenta": params.BALL_MAGENTA,}
+    for i in range(total_slots):
+        x = start_x + i * spacing
+
+        if i < len(responses):
+            fill_color = SOFT_COLORS[responses[i]]
+            line_color = SOFT_COLORS[responses[i]]
         else:
-            selected_response = int(key)
+            fill_color = None
+            line_color = "#536e8c"
 
-        # -------------------------------------------------------------
-        # Redraw once with the selected answer highlighted
-        # -------------------------------------------------------------
-
-        question.draw()
-
-        for i, value in enumerate(
-            qparams.LIKERT_VALUES
-        ):
-
-            x_pos = (
-                qparams.LIKERT_X_POSITIONS[i]
-            )
-
-            if selected_response == value:
-                fill_color = "darkgrey"
-                line_width = 3
-            else:
-                fill_color = None
-                line_width = 2
-
-            circle = visual.Circle(
-                win=win,
-                radius=qparams.LIKERT_RADIUS,
-                pos=(
-                    x_pos,
-                    qparams.LIKERT_Y,
-                ),
-                fillColor=fill_color,
-                lineColor="black",
-                lineWidth=line_width,
-            )
-
-            number = visual.TextStim(
-                win=win,
-                text=str(value),
-                pos=(
-                    x_pos,
-                    qparams.LIKERT_Y,
-                ),
-                color="black",
-                height=0.035,
-                bold=True,
-                font="Arial",
-            )
-
-            label = visual.TextStim(
-                win=win,
-                text=labels[i],
-                pos=(
-                    x_pos,
-                    qparams.LABEL_Y,
-                ),
-                color="black",
-                height=qparams.LABEL_HEIGHT,
-                wrapWidth=qparams.LABEL_WRAP_WIDTH,
-                alignText="center",
-                font="Arial",
-            )
-
-            circle.draw()
-            number.draw()
-            label.draw()
-
-        bottom.draw()
-
-        win.flip()
-
-        # Show the selection briefly
-        core.wait(0.2)
-
-        return selected_response
-
-
-# -----------------------------------------------------------------------------
-# Cycle reconstruction display
-# -----------------------------------------------------------------------------
-
-
-def draw_cycle_response(
-    win,
-    responses,
-):
-    """
-    Draw the participant's current reconstructed sequence.
-
-    Blue responses appear as blue balls.
-    Magenta responses appear as magenta balls.
-    """
-
-    if not responses:
-
-        placeholder = draw_text(
+        visual.Circle(
             win=win,
-            text="Your sequence will appear here",
-            pos=(
-                0,
-                qparams.CYCLE_BALL_Y,
-            ),
-            height=0.027,
-            wrap_width=1.0,
-        )
-
-        placeholder.draw()
-
-        return
-
-    n_balls = len(
-        responses
-    )
-
-    total_width = (
-        (n_balls - 1)
-        * qparams.CYCLE_BALL_SPACING
-    )
-
-    start_x = (
-        -total_width / 2
-    )
-
-    for i, color in enumerate(
-        responses
-    ):
-
-        x_pos = (
-            start_x
-            + i
-            * qparams.CYCLE_BALL_SPACING
-        )
-
-        ball = visual.Circle(
-            win=win,
-            radius=qparams.CYCLE_BALL_RADIUS,
-            pos=(
-                x_pos,
-                qparams.CYCLE_BALL_Y,
-            ),
-            fillColor=color,
-            lineColor="black",
-            lineWidth=2,
-        )
-
-        ball.draw()
+            radius=radius,
+            pos=(x, y),
+            fillColor=fill_color,
+            lineColor=line_color,
+            lineWidth=2
+        ).draw()
 
 
-# -----------------------------------------------------------------------------
-# Cycle reconstruction question
-# -----------------------------------------------------------------------------
 
-
-def ask_cycle_reconstruction(
-    win,
-    selected_urn,
-):
+def ask_cycle_reconstruction(win, selected_urn, estimated_k=None):
     """
-    Ask the participant to reconstruct the underlying sequence.
+    Reconstruct a sequence using B and M.
 
-    Controls:
+    Known k:
+        Number of slots equals the true k.
 
-        B
-            Add a blue ball.
+    Unknown k:
+        Number of slots equals the participant's estimated k.
 
-        M
-            Add a magenta ball.
-
-        BACKSPACE
-            Remove the most recently entered ball.
-
-        SPACE
-            Submit the answer.
-
-        ESCAPE
-            Quit the experiment.
-
-    Known-k condition:
-        exactly k balls must be entered.
-
-    Unknown-k condition:
-        participant chooses the sequence length.
+    Not sure:
+        Show up to 4 slots and allow a variable-length response.
     """
+
+    knows_k = selected_urn["participant_knows_k"]
+    true_k = selected_urn["ambiguous_k"]
+
+    if knows_k:
+        total_slots = true_k
+        require_exact_length = True
+
+    elif estimated_k in (1, 2, 3):
+        total_slots = estimated_k
+        require_exact_length = True
+
+    else:
+        total_slots = qparams.MAX_CYCLE_RESPONSE_LENGTH
+        require_exact_length = False
 
     responses = []
-
-    participant_knows_k = (
-        selected_urn[
-            "participant_knows_k"
-        ]
-    )
-
-    true_k = (
-        selected_urn[
-            "ambiguous_k"
-        ]
-    )
-
     error_message = ""
 
-    event.clearEvents()
+    # --------------------------------------------------
+    # Question
+    # --------------------------------------------------
 
-    while True:
+    question = draw_text(
+        win,
+        "What was the sequence?",
+        qparams.CYCLE_QUESTION_POS,
+        height=qparams.CYCLE_QUESTION_HEIGHT,
+        wrap_width=qparams.CYCLE_QUESTION_WRAP_WIDTH,
+        bold=True
+    )
 
-        # -----------------------------------------------------------------
-        # Question
-        # -----------------------------------------------------------------
+    # --------------------------------------------------
+    # Minimalist color legend
+    # --------------------------------------------------
 
-        question = draw_text(
-            win=win,
-            text=qparams.CYCLE_QUESTION,
-            pos=qparams.CYCLE_QUESTION_POS,
-            height=qparams.CYCLE_QUESTION_HEIGHT,
-            wrap_width=qparams.CYCLE_QUESTION_WRAP_WIDTH,
-            bold=True,
-        )
+    legend_y = -0.22
+    legend_ball_radius = 0.012
+    legend_text_height = 0.026
 
+    blue_ball = visual.Circle(
+        win=win,
+        radius=legend_ball_radius,
+        pos=(-0.12, legend_y),
+        fillColor="#5379B8",
+        lineColor=None
+    )
+
+    blue_label = draw_text(
+        win,
+        "B",
+        (-0.08, legend_y),
+        height=legend_text_height,
+        color="#536e8c"
+    )
+
+    magenta_ball = visual.Circle(
+        win=win,
+        radius=legend_ball_radius,
+        pos=(0.08, legend_y),
+        fillColor="#B966A8",
+        lineColor=None
+    )
+
+    magenta_label = draw_text(
+        win,
+        "M",
+        (0.12, legend_y),
+        height=legend_text_height,
+        color="#536e8c"
+    )
+
+    # --------------------------------------------------
+    # Action instructions
+    # --------------------------------------------------
+
+    action_instruction = draw_text(
+        win,
+        "Backspace to undo  ·  Space to confirm",
+        (0, -0.30),
+        height=0.025,
+        color="#536e8c"
+    )
+
+    # --------------------------------------------------
+    # Error message
+    # --------------------------------------------------
+
+    error = draw_text(
+        win,
+        "",
+        qparams.CYCLE_ERROR_POS,
+        height=qparams.CYCLE_ERROR_HEIGHT,
+        wrap_width=1.15,
+        bold=True,
+        color="darkred"
+    )
+
+    # --------------------------------------------------
+    # Draw screen
+    # --------------------------------------------------
+
+    def render():
         question.draw()
 
-        # -----------------------------------------------------------------
-        # Current sequence
-        # -----------------------------------------------------------------
-
         draw_cycle_response(
-            win=win,
-            responses=responses,
+            win,
+            responses,
+            total_slots
         )
 
-# -----------------------------------------------------------------
-# Compact controls
-# -----------------------------------------------------------------
+        # Color legend
+        blue_ball.draw()
+        blue_label.draw()
 
-        instruction = draw_text(
-            win=win,
-            text=qparams.CYCLE_INSTRUCTION_KNOWN,
-            pos=qparams.CYCLE_INSTRUCTION_POS,
-            height=qparams.CYCLE_INSTRUCTION_HEIGHT,
-            wrap_width=1.20,
-        )
+        magenta_ball.draw()
+        magenta_label.draw()
 
-        instruction.draw()
+        # Keyboard instructions
+        action_instruction.draw()
 
-        # -----------------------------------------------------------------
-        # Error message
-        # -----------------------------------------------------------------
+        # Error feedback
+        error.text = error_message
 
         if error_message:
-
-            error = draw_text(
-                win=win,
-                text=error_message,
-                pos=qparams.CYCLE_ERROR_POS,
-                height=qparams.CYCLE_ERROR_HEIGHT,
-                wrap_width=1.15,
-                bold=True,
-                color="darkred",
-            )
-
             error.draw()
 
         win.flip()
 
-        # -----------------------------------------------------------------
-        # Keyboard response
-        # -----------------------------------------------------------------
+    event.clearEvents()
+    render()
 
-        keys = event.waitKeys(
+    # --------------------------------------------------
+    # Participant responses
+    # --------------------------------------------------
+
+    while True:
+
+        key = event.waitKeys(
             keyList=[
                 "b",
                 "m",
                 "backspace",
                 "space",
-                "escape",
+                "escape"
             ]
-        )
-
-        key = keys[0]
-
-        # -----------------------------------------------------------------
-        # Escape
-        # -----------------------------------------------------------------
+        )[0]
 
         if key == "escape":
+            quit_experiment(win)
 
-            quit_experiment(
-                win
-            )
-
-        # -----------------------------------------------------------------
-        # Delete
-        # -----------------------------------------------------------------
-
-        if key == "backspace":
+        elif key == "backspace":
 
             if responses:
-
                 responses.pop()
 
             error_message = ""
 
-            continue
+        elif key in ("b", "m"):
 
-        # -----------------------------------------------------------------
-        # Add Blue
-        # -----------------------------------------------------------------
+            if len(responses) < total_slots:
 
-        if key == "b":
+                responses.append(
+                    "blue" if key == "b" else "magenta"
+                )
 
-            if participant_knows_k:
-
-                if len(responses) < true_k:
-
-                    responses.append(
-                        "blue"
-                    )
-
-                else:
-
-                    error_message = (
-                        f"This rule contains {true_k} balls. "
-                        "Press BACKSPACE if you want to change one."
-                    )
+                error_message = ""
 
             else:
+                error_message = (
+                    "Sequence is full. "
+                    "Press BACKSPACE to change your answer."
+                )
 
-                if (
-                    len(responses)
-                    < qparams.MAX_CYCLE_RESPONSE_LENGTH
-                ):
+        elif key == "space":
 
-                    responses.append(
-                        "blue"
-                    )
+            if not responses:
+                error_message = "Please enter at least one ball."
 
-                    error_message = ""
-
-                else:
-
-                    error_message = (
-                        "You have reached the maximum sequence length. "
-                        "Press BACKSPACE if you want to change it."
-                    )
-
-            continue
-
-        # -----------------------------------------------------------------
-        # Add Magenta
-        # -----------------------------------------------------------------
-
-        if key == "m":
-
-            if participant_knows_k:
-
-                if len(responses) < true_k:
-
-                    responses.append(
-                        "magenta"
-                    )
-
-                    error_message = ""
-
-                else:
-
-                    error_message = (
-                        f"This rule contains {true_k} balls. "
-                        "Press BACKSPACE if you want to change one."
-                    )
+            elif require_exact_length and len(responses) != total_slots:
+                error_message = (
+                    f"Please enter exactly {total_slots} balls."
+                )
 
             else:
+                return list(responses)
 
-                if (
-                    len(responses)
-                    < qparams.MAX_CYCLE_RESPONSE_LENGTH
-                ):
-
-                    responses.append(
-                        "magenta"
-                    )
-
-                    error_message = ""
-
-                else:
-
-                    error_message = (
-                        "You have reached the maximum sequence length. "
-                        "Press BACKSPACE if you want to change it."
-                    )
-
-            continue
-
-        # -----------------------------------------------------------------
-        # SPACE = submit
-        # -----------------------------------------------------------------
-
-        if key == "space":
-
-            # Known-k condition
-            if participant_knows_k:
-
-                if len(responses) != true_k:
-
-                    error_message = (
-                        f"Please enter exactly {true_k} balls "
-                        "before pressing SPACE."
-                    )
-
-                    continue
-
-            # Unknown-k condition
-            else:
-
-                if len(responses) == 0:
-
-                    error_message = (
-                        "Please enter at least one ball "
-                        "before pressing SPACE."
-                    )
-
-                    continue
-
-            return list(
-                responses
-            )
-
+        render()
 
 # -----------------------------------------------------------------------------
 # Main post-block question sequence
@@ -679,11 +497,9 @@ def run_post_block_questions(
                 "1",
                 "2",
                 "3",
-                "4",
                 "num_1",
                 "num_2",
                 "num_3",
-                "num_4",
             ],
             question_pos=qparams.K_QUESTION_POS,
             question_height=qparams.K_QUESTION_HEIGHT,
@@ -713,6 +529,7 @@ def run_post_block_questions(
         ask_cycle_reconstruction(
             win=win,
             selected_urn=selected_urn,
+            estimated_k=results["estimated_k"],
         )
     )
 
@@ -772,32 +589,6 @@ def run_post_block_questions(
 # -----------------------------------------------------------------------------
 
 
-if __name__ == "__main__":
-
-    win = visual.Window(
-        size=[1200, 800],
-        fullscr=False,
-        color="lightgrey",
-        units="height",
-    )
-
-    dummy_urn = {
-        "ambiguous_k": 3,
-        "participant_knows_k": False,
-        "label": "Urn A",
-    }
-
-    results = run_post_block_questions(
-        win=win,
-        selected_urn=dummy_urn,
-    )
-
-    print(
-        results
-    )
-
-    win.close()
-
 ######### FOR THE TRAINING PART ONLY
 
 def run_training_questions(
@@ -830,11 +621,9 @@ def run_training_questions(
                 "1",
                 "2",
                 "3",
-                "4",
                 "num_1",
                 "num_2",
                 "num_3",
-                "num_4",
             ],
             question_pos=qparams.K_QUESTION_POS,
             question_height=qparams.K_QUESTION_HEIGHT,
@@ -868,3 +657,21 @@ def run_training_questions(
     )
 
     return results
+
+if __name__ == "__main__":
+    if not TEST_MODE:
+        raise RuntimeError("Set TEST_MODE = True to run questions_task.py standalone. "
+                           "For real sessions, run it through urn_task.py.")
+    win = visual.Window(size=[1200, 800], fullscr=False,
+                        color="lightgrey", units="height")
+    dummy_urn = {
+        "ambiguous_k": TEST_K,
+        "participant_knows_k": TEST_PARTICIPANT_KNOWS_K,
+        "label": "Test Urn",
+    }
+    try:
+        print(run_post_block_questions(win=win, selected_urn=dummy_urn))
+    finally:
+        win.close()
+
+
