@@ -104,7 +104,7 @@ def ask_key_question(
     event.clearEvents()
     render()
     while True:
-        key = event.waitKeys(keyList=_number_keys(values) + ["space", "escape"])[0]
+        key = event.waitKeys(keyList=_number_keys(values) + ["space", "escape","num_enter","return"])[0]
         if key == "escape":
             quit_experiment(win)
         if key == "space":
@@ -212,7 +212,7 @@ def ask_likert_question(win, question_text, labels):
 
     while True:
         key = event.waitKeys(
-            keyList=_number_keys(values) + ["space", "escape"]
+            keyList=_number_keys(values) + ["space", "escape","num_enter","return"]
         )[0]
 
         if key == "escape":
@@ -424,7 +424,9 @@ def ask_cycle_reconstruction(win, selected_urn, estimated_k=None):
                 "m",
                 "backspace",
                 "space",
-                "escape"
+                "escape",
+                "num_enter",
+                "return",
             ]
         )[0]
 

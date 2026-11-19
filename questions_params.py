@@ -115,22 +115,22 @@ CYCLE_ERROR_HEIGHT = 0.025
 # -----------------------------------------------------------------------------
 
 CONFIDENCE_QUESTION = (
-    "How confident are you in your answer?"
+    "How confident are you in the pattern you just gave?"
 )
 
 
 LIKING_QUESTION = (
-    "How much did you like this urn?"
+    "How much did you like this round?"
 )
 
 
 DIFFICULTY_QUESTION = (
-    "How difficult was it to understand this urn?"
+    "How difficult was it to understand this round?"
 )
 
 
 EFFORT_QUESTION = (
-    "How mentally demanding was this block?"
+    "How mentally demanding was this round?"
 )
 
 

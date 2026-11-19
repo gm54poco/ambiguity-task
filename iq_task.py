@@ -14,6 +14,7 @@ import csv
 import re
 from datetime import datetime
 from pathlib import Path
+import urn_params as params
 
 from psychopy import core, event, gui, visual
 
@@ -155,8 +156,8 @@ def image_stim(win, path, visual_settings):
 def screen(win, heading, message, footer="Press SPACE to continue"):
     event.clearEvents(eventType="keyboard")
     while True:
-        make_text(win, heading, y=0.24 if heading == "Pattern reasoning task" else 0.18, height=0.048, color=GREEN).draw()
-        make_text(win, message, y=0.015, height=0.034, width=1.36).draw()
+        make_text(win, heading, y=0.24 if heading == "Find the missing piece" else 0.18, height=params.TITLE_HEIGHT, color=GREEN).draw()
+        make_text(win, message, y=0.015, height=params.BODY_HEIGHT, width=1.36).draw()
         make_text(win, footer, y=-0.30, height=0.026).draw()
         win.flip()
         keys = event.getKeys()
@@ -314,12 +315,13 @@ def run_iq_task(win=None, participant=None, test_mode=False):
         win.mouseVisible = False
         screen(
             win,
-            "Pattern reasoning task",
-            "In each question, one part of a pattern is missing.\n"
-            "Choose the option (1–8) that best completes it.\n\n"
-            "Press 1–8 to select an answer.\n"
-            "Press SPACE to confirm your selection.\n\n"
-            "You will first complete two practice questions."
+            "Find the missing piece",
+            "\n\nYou will see pictures with a missing piece.\n\n"
+            "For each picture, choose the piece that fits best "
+            "in the empty space.\n\n"
+            "Press a number (1-8) to choose your answer.\n"
+            "Press SPACE to confirm your choice and move to the next question.\n\n"
+            "You will start with 2 practice questions."
         )
 
         for practice_number in PRACTICE_IDS:
@@ -336,8 +338,8 @@ def run_iq_task(win=None, participant=None, test_mode=False):
 
         screen(
             win,
-            "Main task",
-            f"You will now complete {len(QUESTION_NUMBERS)} questions.\n\n"
+            "Practice complete",
+            f"You will now answer {len(QUESTION_NUMBERS)} more questions.\n\n"
             "Press 1–8 to select an answer.\n"
             "Press SPACE to confirm and continue.\n\n"
             "No feedback will be shown during this task."

@@ -1,45 +1,81 @@
-"""Guided practice for the urn prediction experiment.
+"""Practice tutorial and four urn-prediction practice rounds.
 
-Place this file next to urn_task.py, urn_params.py and the existing assets folder.
-It is designed for the optimized urn_task.py version (October 2026).
+Install beside urn_task.py, urn_params.py, and the existing assets folder.
+Keep the same PsychoPy units='height' window and the same urn/ball assets.
 
-Run on its own:
+Use from the experiment:
+    import training_task
+    training_task.run_training(win=win)
+
+Or preview independently:
     python training_task.py
 
-Or integrate before the real experiment:
-    import training_task
-    training_task.run_training()
-
-The practice does NOT call the staircase, does NOT run the post-block
-questionnaire, and does NOT award real points. It temporarily adapts the
-header's maximum reward and flipped-ball count for 10-trial practice blocks;
-all original parameters are restored, including on error or early exit.
+This file does not alter urn_task.py, staircases, or the main experiment.
+The example and four practice rounds award no real points.
 """
 
+import math
 import random
 from contextlib import contextmanager
-
 from psychopy import core, event, visual
-
 import urn_params as params
 import urn_task as task
-import math
 
-
-# Total number of practice rounds (urn choices). Change this as needed.
-# Round 1 is always known-k; round 2 is always unknown-k.
-# Later rounds are assigned known/unknown at random.
+# Main practice design (kept from the old training file).
 ROUND_N = 4
-
 PRACTICE_TRIALS = 10
-PRACTICE_FLIPS = 1  # 1/10 = 10% for a 10-trial practice block
+PRACTICE_FLIPS = 1
 PRACTICE_FLIP_LAST_N = 4
 PRACTICE_MAX_REWARD = PRACTICE_TRIALS * params.REWARD_PER_CORRECT_GUESS
 PRACTICE_DETERMINISTIC_VALUES = [15, 24]
-# Reuse PsychoPy stimuli instead of rebuilding text for every animation frame.
+
+# The interactive illustration is separate from the four practice rounds.
+EXAMPLE_TRIALS = 10
+EXAMPLE_K = 2
+EXAMPLE_CYCLE = ("blue", "magenta")
+EXAMPLE_SURPRISE_TRIAL = 7
+
+# Always read explanation font sizes from urn_params.
+TITLE_HEIGHT = params.TITLE_HEIGHT
+BODY_HEIGHT = params.BODY_HEIGHT
+NAV_HEIGHT = 0.021   # Navigation hints are UI, not explanations.
+
+NAVY = "#172b49"
+INSTRUCTION_NAVY = NAVY  # shared with the newer tutorial screen
+BODY_COLOR = "#334155"
+MUTED = "#576a82"
 _TEXT_CACHE = {}
 _IMAGE_CACHE = {}
+_SHAPE_CACHE = {}
+# Target illustration
+TARGET_IMAGE_PATH = params.BASE_DIR / "assets" / "stars.png"
 
+# Target illustration size and position
+TARGET_SIZE = (0.5, 0.5) #before 0.5
+TARGET_POS = (0, 0.2) #before 0.65
+
+
+REWARD_CHOICE_URN_SCALE = 1.3
+PRACTICE_INFO_LABEL_X = -0.66
+PRACTICE_INFO_BALL_START_X = -0.35
+PRACTICE_INFO_ROW_Y = (0.374, 0.326)
+PRACTICE_URN_TYPE_Y = 0.422
+PRACTICE_INFO_TEXT_HEIGHT = 0.019
+PRACTICE_INFO_BALL_RADIUS = 0.007
+PRACTICE_INFO_BALL_SPACING = 0.023
+PRACTICE_INFO_COLOR = "#253f62"
+PRACTICE_INFO_EMPTY_COLOR = "#536e8c"
+PRACTICE_BAR_Y = 0.26
+PRACTICE_SCORE_LEFT_X = -0.62
+PRACTICE_SCORE_RIGHT_X = 0.58
+PRACTICE_REMINDER_AFTER = 3.0
+PRACTICE_GUESS_Y = -0.040
+PRACTICE_FEEDBACK_SECONDS = 0.14
+PRACTICE_REVEAL_BALL_RADIUS = 0.12
+PRACTICE_START_HEIGHT_FRACTION = 0.35
+PRACTICE_RISE_FRAMES = 1
+PRACTICE_FLIP_HALF_FRAMES = 1
+PRACTICE_HISTORY_FRAMES = 1
 
 
 def _text(win, message, y, height=0.034, color="#172b49", bold=False,
@@ -55,164 +91,376 @@ def _text(win, message, y, height=0.034, color="#172b49", bold=False,
     return stim
 
 
-def _wait_space(win):
+def _left_text(win, message, x, y, height=0.019, color=NAVY, bold=False):
+    """Cache top-left task labels; crucial for fast redraw during ball animation."""
+    key = (id(win), 'left', str(message), x, y, height, color, bold)
+    stim = _TEXT_CACHE.get(key)
+    if stim is None:
+        stim = task.draw_text(win, message, (x, y), height=height,
+                              color=color, bold=bold, align_text='left')
+        _TEXT_CACHE[key] = stim
+    return stim
+
+
+def _right_text(win, message, x, y, height=0.020, color=NAVY, bold=False):
+    """Cache right-aligned live accuracy readouts."""
+    key = (id(win), 'right', str(message), x, y, height, color, bold)
+    stim = _TEXT_CACHE.get(key)
+    if stim is None:
+        stim = task.draw_text(win, message, (x, y), height=height,
+                              color=color, bold=bold, align_text='right')
+        _TEXT_CACHE[key] = stim
+    return stim
+
+
+def _exp_title(win, message, y=0.34, x=0, wrap=1.50, height=TITLE_HEIGHT):
+    return _text(win, message, y, height=height, color=NAVY,
+                 bold=True, wrap_width=wrap, x=x)
+
+
+def _exp_body(win, message, y, x=0, color=BODY_COLOR, wrap=1.50, bold=False):
+    return _text(win, message, y, height=BODY_HEIGHT, color=color,
+                 wrap_width=wrap, bold=bold, x=x)
+
+
+def _footer(win, msg='Press SPACE to continue'):
+    _text(win, msg, -0.424, height=NAV_HEIGHT, color=MUTED).draw()
+
+
+def _navigation(win, can_back=False):
+    """SPACE continues; BACKSPACE revisits earlier explanatory pages only."""
     event.clearEvents()
-    keys = event.waitKeys(keyList=["space", "escape"])
-    if "escape" in keys:
+    keys = ['space', 'return', 'num_enter', 'escape']
+    if can_back:
+        keys.append('backspace')
+    pressed = event.waitKeys(keyList=keys)
+    if 'escape' in pressed:
         task.quit_experiment(win)
+    return -1 if 'backspace' in pressed else 1
 
 
-def _opening_screen(win, heading, subtitle=None, footer="Press SPACE to continue"):
-    """Minimal full-screen opening; nothing else appears until SPACE."""
-    _text(win, heading, 0.2, height=0.053, bold=True).draw()
-    if subtitle:
-        _text(win, subtitle, -0.025, height=0.029,
-              color="#334155", wrap_width=1.05).draw()
-    _text(win, footer, -0.29, height=0.025,
-          color="#576a82").draw()
-    win.flip()
-    _wait_space(win)
+def _wait_space(win):
+    _navigation(win, can_back=False)
 
-# Two-step instruction layout
-INSTRUCTION_STEP_Y = 0.415
-INSTRUCTION_TITLE_Y = 0.295
-INSTRUCTION_TEXT_TOP_Y = 0.155
-INSTRUCTION_TEXT_HEIGHT = 0.026
-INSTRUCTION_FOOTER_Y = -0.425
 
-INSTRUCTION_NAVY = "#172b49"
-INSTRUCTION_BODY = "#334155"
-INSTRUCTION_MUTED = "#576a82"
+def _ball(win, color, x, y, radius=0.033, tag=None):
+    """Use the exact blue/magenta palette from urn_params."""
+    key = (id(win), 'ball', tag or color, radius)
+    stim = _SHAPE_CACHE.get(key)
+    if stim is None:
+        stim = visual.Circle(win, pos=(x, y), radius=radius, edges=48,
+                             fillColor=params.ball_display_color(color),
+                             lineColor=None, lineWidth=0)
+        _SHAPE_CACHE[key] = stim
+    stim.pos = (x, y)
+    stim.fillColor = params.ball_display_color(color)
+    stim.lineColor = None
+    stim.lineWidth = 0
+    stim.draw()
 
-def _instruction_paragraph(win, lines, x, top_y,
-                           width=0.61, spacing=0.115):
-    for index, line in enumerate(lines):
-        visual.TextStim(
+
+def _example_ball_row(win, colors, y, spacing=0.095, radius=0.033,
+                      question=False, tag='row'):
+    n = len(colors) + (1 if question else 0)
+    start = -(n - 1) * spacing / 2
+    for i, color in enumerate(colors):
+        _ball(win, color, start + i * spacing, y, radius,
+              tag=(tag, i))
+    if question:
+        x = start + len(colors) * spacing
+        key = (id(win), 'question-circle', radius)
+        stim = _SHAPE_CACHE.get(key)
+        if stim is None:
+            stim = visual.Circle(win, pos=(x, y), radius=radius, edges=48,
+                                 fillColor=None, lineColor=NAVY, lineWidth=2)
+            _SHAPE_CACHE[key] = stim
+        stim.pos = (x, y)
+        stim.draw()
+        _text(win, '?', y, height=BODY_HEIGHT, bold=True, x=x).draw()
+
+
+def _grouped_pattern_row(win, colors, pattern_length, y,
+                         center_x=0.18, spacing=0.083,
+                         radius=0.025):
+    """Draw six balls with outlines marking each repeating unit."""
+
+    n = len(colors)
+    start_x = center_x - (n - 1) * spacing / 2
+
+    # Draw an outline around each repeating group.
+    for group_start in range(0, n, pattern_length):
+
+        group_size = min(pattern_length, n - group_start)
+
+        group_center_x = (
+            start_x
+            + (group_start + (group_size - 1) / 2) * spacing
+        )
+
+        box_width = (
+            (group_size - 1) * spacing
+            + 2 * radius
+            + 0.018
+        )
+
+        visual.Rect(
             win=win,
-            text=line,
-            pos=(x, top_y - index * spacing),
-            height=INSTRUCTION_TEXT_HEIGHT,
-            wrapWidth=width,
-            color=INSTRUCTION_BODY,
-            alignText="left",
-            anchorHoriz="left",
-            anchorVert="top",
+            pos=(group_center_x, y),
+            width=box_width,
+            height=2 * radius + 0.035,
+            fillColor=None,
+            lineColor="#98A4B5",
+            lineWidth=1.0
         ).draw()
 
+    # Draw the six balls inside the outlined groups.
+    for i, color in enumerate(colors):
+        x = start_x + i * spacing
 
-
-def _instruction_urn_image(win, urn_name, opened, pos, size):
-    path = params.PRETTY_URNS_DIR / (
-        f"{urn_name}_{'opened' if opened else 'closed'}.png"
-    )
-
-    visual.ImageStim(
-        win=win,
-        image=str(path),
-        pos=pos,
-        size=size,
-        interpolate=True
-    ).draw()
-
-
-def _practice_step_screen(win, step):
-    title = (
-        "Choosing an urn"
-        if step == 1
-        else "Guessing the next ball"
-    )
-
-    _text(win, f"STEP {step} OF 2", INSTRUCTION_STEP_Y,
-          height=0.020, color=INSTRUCTION_MUTED,
-          bold=True).draw()
-
-    _text(win, title, INSTRUCTION_TITLE_Y,
-          height=0.048, color=INSTRUCTION_NAVY,
-          bold=True).draw()
-
-    visual.Line(
-        win, start=(-0.72, 0.235), end=(0.72, 0.235),
-        lineColor="#cbd0d5", lineWidth=1.0
-    ).draw()
-
-    visual.Line(
-        win, start=(-0.72, -0.375), end=(0.72, -0.375),
-        lineColor="#cbd0d5", lineWidth=1.0
-    ).draw()
-
-    _text(win, "Press SPACE to continue",
-          INSTRUCTION_FOOTER_Y, height=0.022,
-          color=INSTRUCTION_MUTED).draw()
-
-    urn_names = list(params.PRETTY_URN_NAMES)
-
-    if step == 1:
-        _instruction_paragraph(
-            win,
-            [
-                "You will choose between two urns.",
-                "One allows you to earn a fixed number of points.",
-                "The other allows you to earn points based on the number of correct guesses.",
-                "Both urns contain the same type of game."
-            ],
-            x=-0.70,
-            top_y=INSTRUCTION_TEXT_TOP_Y
+        _ball(
+            win, color, x, y,
+            radius=radius,
+            tag=("grouped_pattern", pattern_length, i)
         )
+def _intro_block_text(win, message, y, x=-0.60, wrap=1.20):
+    stim = task.draw_text(
+        win,
+        message,
+        (x, y),
+        height=0.04,
+        color=BODY_COLOR,
+        wrap_width=wrap,
+        align_text="left"
+    )
+    stim.anchorHoriz = "left"
+    stim.anchorVert = "top"
+    return stim
+def _intro_page(win, page):
+    """Four short, illustrated explanation screens in the requested order."""
+    if page == 0:
 
-        for x, name, label in (
-            (0.29, urn_names[0], "Fixed reward"),
-            (0.58, urn_names[1], "Points per correct guess"),
-        ):
-            _instruction_urn_image(
-                win, name, opened=False,
-                pos=(x, 0.035),
-                size=(0.24, 0.26)
+        # =========================
+        # Title
+        # =========================
+        _intro_block_text(
+            win,
+            "Your task in this game is to earn as many points as possible.",
+            y=0.365,
+            wrap=1.45
+        ).draw()
+
+        # =========================
+        # Stars image
+        # =========================
+        target_key = (id(win), "target_image")
+        target = _IMAGE_CACHE.get(target_key)
+
+        if target is None:
+            target = visual.ImageStim(
+                win=win,
+                image=str(TARGET_IMAGE_PATH),
+                size=TARGET_SIZE,
+                interpolate=True
             )
+            _IMAGE_CACHE[target_key] = target
 
-            _text(win, label, -0.175,
-                  height=0.020,
-                  color=INSTRUCTION_BODY,
-                  x=x, wrap_width=0.29).draw()
+        target.pos = TARGET_POS
+        target.draw()
 
-    else:
-        _instruction_paragraph(
+        # =========================
+        # Paragraphs
+        # =========================
+        _intro_block_text(
             win,
-            [
-                "You will draw colored balls from the chosen urn.",
-                "You will guess the color of the next ball.",
-                "After each guess, the actual color will be revealed."
-            ],
-            x=0.10,
-            top_y=INSTRUCTION_TEXT_TOP_Y,
-            width=0.59
-        )
-
-        _text(
-            win, "Previous draws (example)",
-            0.12, height=0.020,
-            color=INSTRUCTION_MUTED,
-            x=-0.37
+            "First, you will choose between two urns, each urn contains twenty colored balls.",
+            y=0.07
         ).draw()
 
-        for i, color in enumerate(
-            ("blue", "magenta", "magenta", "blue", "magenta")
-        ):
-            visual.Circle(
+        _intro_block_text(
+            win,
+            "After choosing an urn, you will draw balls from it, guessing their color one at a time",
+            y=-0.045
+        ).draw()
+
+        _intro_block_text(
+            win,
+            "Depending on the urn you choose you can earn different amount of money. "
+            "Some urns guarantee a certain amount, while others depend on on how many colors you guess correctly.",
+            y=-0.16
+        ).draw()
+
+        # =========================
+        # Divider line
+        # =========================
+        visual.Line(
+            win,
+            start=(-0.62, -0.37),
+            end=(0.62, -0.37),
+            lineColor="#A8B3C2",
+            lineWidth=1.3
+        ).draw()
+
+    elif page == 1:
+
+        _exp_title(
+            win,
+            "The balls you pick follow a repeating sequence",
+            y=0.365
+        ).draw()
+
+        _exp_body(
+            win,
+            "Here are some examples:",
+            y=0.262
+        ).draw()
+
+        examples = (
+            (1, ("blue",) * 6, 0.120),
+            (2, ("blue", "magenta") * 3, -0.070),
+            (3, ("blue", "magenta", "magenta") * 2, -0.260),
+        )
+
+        for length, sequence, y in examples:
+
+            _exp_body(
                 win,
-                pos=(-0.55 + i * 0.09, 0.025),
-                radius=0.026,
-                fillColor=params.ball_display_color(color),
-                lineColor=None,
-                edges=40
+                f"Pattern length = {length}",
+                y=y - 0.045,
+                x=-0.4,
+                wrap=0.52
             ).draw()
 
-        _text(
-            win, "B = blue       M = magenta",
-            -0.10, height=0.019,
-            color=INSTRUCTION_BODY,
-            x=-0.37
+            # Draw the balls ONLY ONCE, with grouped outlines
+            _grouped_pattern_row(
+                win,
+                colors=sequence,
+                pattern_length=length,
+                y=y - 0.045,
+                center_x=0.18,
+                spacing=0.090,
+                radius=0.025
+            )
+
+    #elif page == 2:
+    #    _exp_title(win, 'Your task is to figure out the pattern', y=0.315).draw()
+    #    _exp_body(win, 'For example, with a pattern length of 2:', 0.185).draw()
+    #    _example_ball_row(win, ('blue', 'magenta', 'blue', 'magenta'),
+    #                      -0.015, spacing=0.127, radius=0.047,
+    #                      question=True, tag='pattern_question')
+    #    _exp_body(win, 'Which color comes next?', -0.205).draw()
+    
+
+    elif page == 2:
+
+        # -----------------------------------
+        # Title
+        # -----------------------------------
+        _exp_title(
+            win,
+            "Surprise ball!",
+            y=0.365
         ).draw()
 
+        # -----------------------------------
+        # Explanation
+        # -----------------------------------
+        _exp_body(
+            win,
+            "Sometimes, a “surprise ball” comes out with the opposite color to the one expected from the sequence."
+            "\n\nThis does not change the sequence: the following balls continue in their usual order.",
+            y=0.245
+        ).draw()
+
+        # -----------------------------------
+        # Labels above the balls
+        # -----------------------------------
+        _exp_body(
+            win,
+            "Pattern",
+            y=0.065,
+            x=-0.25,
+            wrap=0.40
+        ).draw()
+
+        _exp_body(
+            win,
+            "Surprise ball",
+            y=0.065,
+            x=0.25,
+            wrap=0.40
+        ).draw()
+
+        # -----------------------------------
+        # Pattern ball: BLUE
+        # -----------------------------------
+        ball_y = -0.085
+        ball_radius = 0.047
+
+        _ball(
+            win,
+            "blue",
+            x=-0.25,
+            y=ball_y,
+            radius=ball_radius,
+            tag="intro_pattern_ball"
+        )
+
+        # Arrow
+        _text(
+            win,
+            "→",
+            y=ball_y,
+            x=0,
+            height=BODY_HEIGHT,
+            color=NAVY
+        ).draw()
+
+        # -----------------------------------
+        # Surprise ball: MAGENTA
+        # -----------------------------------
+        _ball(
+            win,
+            "magenta",
+            x=0.25,
+            y=ball_y,
+            radius=ball_radius,
+            tag="intro_surprise_ball"
+        )
+
+        # Magician's hat
+        _draw_surprise_hat(
+            win,
+            pos=(0.25, ball_y),
+            radius=ball_radius,
+            tag="intro_surprise_hat"
+        )
+
+    else:
+        raise ValueError(f'Unknown introductory page: {page}')
+    _footer(win, 'SPACE: next     BACKSPACE: previous' if page else 'Press SPACE to continue')
+    win.flip()
+
+
+
+def _run_intro_pages(win):
+    page = 0
+    while page < 3:
+        _intro_page(win, page)
+        page = max(0, page + _navigation(win, can_back=(page > 0)))
+
+
+def _simple_page(
+    win, title, body,
+    footer='Press SPACE to continue',
+    title_y=0.205,
+    body_y=-0.015,
+    wrap=1.28,
+    title_wrap=1.50,
+    title_height=TITLE_HEIGHT
+):
+    _exp_title(win, title, y=title_y, wrap=title_wrap, height=title_height).draw()
+    _exp_body(win, body, y=body_y, wrap=wrap).draw()
+    _footer(win, footer)
     win.flip()
     _wait_space(win)
 
@@ -222,7 +470,6 @@ def _fixation(win, duration=0.50):
     _text(win, "+", 0, height=0.070, bold=True).draw()
     win.flip()
     core.wait(duration)
-
 
 
 @contextmanager
@@ -239,302 +486,186 @@ def _practice_header_values():
         params.N_RANDOM_DRAWS = old_flips
 
 
+def _draw_surprise_hat(win, pos, radius, tag="reveal"):
+    """A small top hat above an actual surprise ball (also in draw history)."""
+    x, y = pos
+    r = radius
+    navy, pink = "#172b49", "#e7428b"
+    # Reuse the three simple shapes throughout each animation / history redraw.
+    parts = (
+        ("crown", (x, y + 1.42*r), (1.28*r, 0.90*r), navy),
+        ("band", (x, y + 1.20*r), (1.30*r, 0.19*r), pink),
+        ("brim", (x, y + 0.98*r), (1.96*r, 0.28*r), navy),
+    )
+    for name, center, size, color in parts:
+        stim = task._cached(
+            win, ("surprise_hat", tag, name),
+            lambda: visual.Rect(win=win, pos=center,
+                                width=size[0], height=size[1],
+                                fillColor=color, lineColor=color),
+        )
+        stim.pos = center
+        stim.width, stim.height = size
+        stim.draw()
+
+
+def _practice_draw_history(win, sequence, surprise_indices=()):
+    """Keep the existing history, adding a little hat above surprise balls."""
+    task.draw_sequence_feedback(win, sequence)
+    for index in surprise_indices:
+        if index < len(sequence):
+            _draw_surprise_hat(win, task.get_feedback_ball_position(index),
+                               params.FEEDBACK_BALL_RADIUS, tag=("history", index))
+
+
 def _draw_hint_background(win, selected_urn, sequence, trial_results):
-    """Draw the usual trial screen, then dim it behind a centred card."""
-    # Match the actual minimalist practice prediction screen under the modal.
     _practice_draw_prediction(win, selected_urn, sequence, trial_results)
-    # Dim the background without fully hiding the trial context.
-    visual.Rect(
-        win, pos=(0, 0), width=2.2, height=2.2,
-        fillColor="#101827", lineColor=None, opacity=0.83
-    ).draw()
+    visual.Rect(win, pos=(0, 0), width=2.2, height=2.2,
+                fillColor='#101827', lineColor=None, opacity=0.83).draw()
 
 
-def _draw_hint_card(win, heading, footer):
-    visual.Rect(
-        win, pos=(0, 0.005), width=0.90, height=0.54,
-        fillColor="#303c50", lineColor="#61738b", lineWidth=1.6,
-    ).draw()
-
-    _text(win, footer, -0.225, height=0.025,
-          color="#bfd0e8", bold=True).draw()
+def _draw_hint_card(win, footer='Press SPACE to begin'):
+    visual.Rect(win, pos=(0, 0.005), width=0.99, height=0.60,
+                fillColor='#303c50', lineColor='#61738b',
+                lineWidth=1.6).draw()
+    _text(win, footer, -0.244, height=NAV_HEIGHT,
+          color='#bfd0e8', bold=True).draw()
 
 
 def _context_hint(win, selected_urn, sequence, trial_results,
                   title, explanation, pattern_length=None):
-    """Show a clean centred card explaining the pattern concept."""
+    """Same dark modal style as the newer training version."""
     _draw_hint_background(win, selected_urn, sequence, trial_results)
-    _draw_hint_card(win, "Pattern", "Press SPACE to begin")
-
+    _draw_hint_card(win)
     if pattern_length is not None:
-        _text(win, f"Pattern length: {pattern_length}", 0.155,
-            height=0.042, bold=True,
-            color="#f1f5f9").draw()
-
-        radius = 0.026 if pattern_length >= 3 else 0.029
-        spacing = 0.065
-        group_width = (pattern_length - 1) * spacing
-        group_centers = (-0.17, 0.17)
-
-        for group_cx in group_centers:
-            for idx in range(pattern_length):
-                px = group_cx - group_width / 2 + idx * spacing
-                visual.Circle(
-                    win=win,
-                    pos=(px, 0.045),
-                    radius=radius,
-                    fillColor="#253f62",
-                    lineColor="#bdc8d7",
-                    lineWidth=1.6,
-                ).draw()
-
-        _text(win, "→", 0.045, height=0.046,
-            x=0, color="#f1f5f9").draw()
-
-        _text(
-            win,
-            f"The sequence follows a repeating pattern of {pattern_length}.\n\n"
-            "(This explanation won't appear in the real task.)",
-            -0.055,
-            height=0.026,
-            wrap_width=0.70,
-            color="#f1f5f9"
-        ).draw()
+        length = int(pattern_length)
+        _text(win, f'Pattern length: {length}', 0.190,
+              height=TITLE_HEIGHT, color='#f1f5f9', bold=True).draw()
+        radius = 0.030
+        spacing = 0.072
+        start = -(length - 1) * spacing / 2
+        for i in range(length):
+            visual.Circle(win, pos=(start + i * spacing, 0.065),
+                          radius=radius, fillColor='#253f62',
+                          lineColor='#bdc8d7', lineWidth=1.6).draw()
+        text = f'The pattern repeats every {length} ball' + ('.' if length == 1 else 's.')
     else:
-    # Heading
-        _text(
-            win, "Pattern length < 4",
-            0.155, height=0.042,
-            bold=True, color="#f1f5f9"
-        ).draw()
-
-        # Unknown pattern illustration
-        radius = 0.026
-        positions = [-0.15, -0.085, -0.02]
-
-        for px in positions:
-            visual.Circle(
-                win=win,
-                pos=(px, 0.045),
-                radius=radius,
-                fillColor=params.BACKGROUND_COLOR,
-                lineColor="#bdc8d7",
-                lineWidth=1.6,
-            ).draw()
-
-        # Question mark
-        _text(
-            win, "?", 0.045,
-            height=0.050, x=0.12,
-            bold=True, color="#f1f5f9"
-        ).draw()
-
-        # First explanation
-        _text(
-            win,
-            "The pattern has fewer than 4 positions.",
-            -0.055,
-            height=0.026,
-            wrap_width=0.70,
-            color="#f1f5f9"
-        ).draw()
-
-        # Second explanation
-        _text(
-            win,
-            "The exact length is not provided.\n\n"
-            "(This explanation won't appear in the real task.)",
-            -0.13, #antes .11
-            height=0.024,
-            wrap_width=0.70,
-            color="#cbd5e1"
-        ).draw()
+        _text(win, 'Pattern length (<4)', 0.190,
+              height=TITLE_HEIGHT, color='#f1f5f9', bold=True).draw()
+        for x in (-0.080, 0.0, 0.080):
+            visual.Circle(win, pos=(x, 0.065), radius=0.028,
+                          fillColor=params.BACKGROUND_COLOR, lineColor='#bdc8d7',
+                          lineWidth=1.6).draw()
+            _text(win, "?", y=0.065, x=x, height=0.030, color="#253f62", bold=True).draw()
+        text = 'The pattern has 1, 2, or 3 positions. Its exact length is not revealed.'
+    _text(win, text, -0.071, height=BODY_HEIGHT,
+          wrap_width=0.87, color='#f1f5f9').draw()
+    _text(win, 'This hint will not appear in the main task.', -0.170,
+          height=NAV_HEIGHT, wrap_width=0.88, color='#cbd5e1').draw()
     win.flip()
     _wait_space(win)
 
 
-def _hint_for_trial(selected_urn, condition, trial_number):
-    """Only one introductory pattern-length hint; no B/M or bar reminders."""
-    if trial_number != 1:
-        return None
-    if condition == "known":
-        return (
-            "Pattern length",
-            "",
-            selected_urn["ambiguous_k"],
-        )
-    return (
-        "Pattern length",
-        "The repeating pattern has fewer than 4 positions. "
-        "Its exact length is unknown.",
-        None,
+def _surprise_hint(win, selected_urn, sequence, trial_results,
+                   prediction, outcome):
+    """Explain a surprise ball using the pattern-length popup style."""
+
+    # Normal game screen, darkened behind the popup
+    _draw_hint_background(
+        win, selected_urn, sequence, trial_results
     )
 
+    # Same card as the pattern-length explanation
+    _draw_hint_card(
+        win, footer="Press SPACE to reveal"
+    )
 
-def _flipped_outcome_hint(win, selected_urn, sequence, trial_results):
-    """Explain a flipped outcome during guided practice."""
-
-    _draw_hint_background(win, selected_urn, sequence, trial_results)
-    _draw_hint_card(win, "Flipped ball", "Press SPACE to reveal")
-
-    # Heading
+    # Title
     _text(
-        win, f"Flipped balls: {PRACTICE_FLIPS}",
-        0.155, height=0.042,
-        bold=True, color="#f1f5f9"
+        win,
+        "Surprise ball!",
+        0.190,
+        height=TITLE_HEIGHT,
+        color="#f1f5f9",
+        bold=True
     ).draw()
 
-    # Blue ball
-    visual.Circle(
-        win=win, pos=(-0.11, 0.045), radius=0.032,
-        fillColor=params.BALL_BLUE, lineColor=params.BALL_BLUE,
-        lineWidth=1.5,
-    ).draw()
+    # Original pattern ball
+    _ball(
+        win, prediction,
+        x=-0.19, y=0.048,
+        radius=0.035,
+        tag="surprise_popup_pattern"
+    )
 
     # Arrow
     _text(
-        win, "→", 0.045, height=0.046,
-        x=0, color="#f1f5f9"
+        win, "→", 0.048,
+        height=BODY_HEIGHT,
+        color="#f1f5f9"
     ).draw()
 
-    # Magenta ball
-    visual.Circle(
-        win=win, pos=(0.11, 0.045), radius=0.032,
-        fillColor=params.BALL_MAGENTA, lineColor=params.BALL_MAGENTA,
-        lineWidth=1.5,
-    ).draw()
+    # Surprise ball
+    _ball(
+        win, outcome,
+        x=0.19, y=0.048,
+        radius=0.035,
+        tag="surprise_popup_outcome"
+    )
+
+    # Magician's hat
+    _draw_surprise_hat(
+        win,
+        pos=(0.19, 0.048),
+        radius=0.035,
+        tag="surprise_popup_hat"
+    )
 
     # Explanation
     _text(
         win,
-        "This ball has the opposite color from the pattern.",
-        -0.055, height=0.026,
-        wrap_width=0.70,
+        "A surprise ball has the opposite color\n"
+        "from the pattern.",
+        -0.095,
+        height=BODY_HEIGHT,
+        wrap_width=0.88,
         color="#f1f5f9"
     ).draw()
 
+    # Small note
     _text(
         win,
-        "\nIn the real task, you will not be told which balls are flipped.",
-        -0.105, height=0.024,
-        wrap_width=0.72,
+        "The pattern continues normally after the surprise ball.",
+        -0.186,
+        height=NAV_HEIGHT,
         color="#cbd5e1"
     ).draw()
 
     win.flip()
     _wait_space(win)
 
+def _hint_for_trial(selected_urn, condition, trial_number):
+    if trial_number != 1:
+        return None
+    return ('Pattern length', '',
+            int(selected_urn['ambiguous_k']) if condition == 'known' else None)
 
 
-REWARD_CHOICE_URN_SCALE = 1.3
-
-
-def _draw_small_indicator_row(win, label, filled, x, y,
-                              total=3,
-                              text_color="#334155",
-                              active_color="#334155",
-                              empty_color="#b8c4d2",
-                              radius=0.008,
-                              spacing=0.026):
-    """Draw a label with 3 small indicator balls, like in the task UI."""
-    _text(
-        win, label, y, 0.020,
-        color=text_color, x=x - 0.075, wrap_width=0.18
-    ).draw()
-
-    start_x = x + 0.015
-    for i in range(total):
-        active = i < filled
-        visual.Circle(
-            win,
-            pos=(start_x + i * spacing, y),
-            radius=radius,
-            fillColor=active_color if active else None,
-            lineColor=active_color if active else empty_color,
-            lineWidth=1.2,
-            edges=48,
-        ).draw()
-def _reward_card(win, urn, x, y=-0.280, width=0.49):
-    """Compact reward information card for an urn."""
-    ambiguous = urn["urn_type"] == "ambiguous"
-
-    # Same colors for both urns
-    fill = "#EDF1F5"      # Light blue-gray background
-    border = "#C4CDD8"    # Neutral border
-    accent = "#172B49"    # Dark navy text
-
-    visual.Rect(
-        win,
-        pos=(x, y),
-        width=width,
-        height=0.190,
-        fillColor=fill,
-        lineColor=border,
-        lineWidth=1.2,
-    ).draw()
-
-    # ------------------------------
-    # Heading
-    # ------------------------------
-    heading = "MAXIMUM REWARD" if ambiguous else "GUARANTEED REWARD"
-    _text(
-        win, heading, y + 0.067, 0.018,
-        color="#475569", bold=True,
-        x=x, wrap_width=width - 0.03
-    ).draw()
-
-    # ------------------------------
-    # Main amount
-    # ------------------------------
-    if ambiguous:
-        amount = f"+{params.REWARD_PER_CORRECT_GUESS:g} pts (max {PRACTICE_MAX_REWARD:g})"
-        subtitle = "earn points per correct guess"
-
-        _text(
-            win, amount, y + 0.020, 0.042,
-            color=accent, bold=True,
-            x=x, wrap_width=width - 0.03
-        ).draw()
-
-        _text(
-            win, subtitle, y - 0.02, 0.020,
-            color=accent,
-            x=x, wrap_width=width - 0.05
-        ).draw()
-    else:
-        amount = f"{urn['value']:g} pts"
-
-        _text(
-            win, amount, y + 0.020, 0.042,
-            color=accent, bold=True,
-            x=x, wrap_width=width - 0.03
-        ).draw()
-
-        _text(
-            win, "Fixed reward", y - 0.02, 0.020,
-            color=accent,
-            x=x, wrap_width=width - 0.05
-        ).draw()
-
-    # ------------------------------
-    # Pattern length + flipped balls
-    # ------------------------------
-    if urn["participant_knows_k"]:
-        visible_length = int(urn["ambiguous_k"])
-    else:
-        visible_length = 0   # unknown k -> all hollow
-
-    _draw_small_indicator_row(
-        win,
-        "Pattern length",
-        visible_length,
-        x=x,
-        y=y - 0.060,
-        text_color="#334155",
-        active_color="#334155",
-        empty_color="#94a3b8",
-    )
-
+def _surprise_explanation(win, urn, sequence, results, prediction, outcome):
+    """Teach a changed-color ball, with the same top hat used in draw history."""
+    _exp_title(win, 'Surprise ball!', 0.366).draw()
+    _exp_body(win, 'Sometimes a ball has the opposite color', 0.259).draw()
+    _exp_body(win, 'from the pattern.', 0.205).draw()
+    _exp_body(win, 'Pattern', 0.078, x=-0.250, wrap=0.40).draw()
+    _exp_body(win, 'Surprise', 0.078, x=0.250, wrap=0.40).draw()
+    _ball(win, prediction, -0.250, -0.040, radius=0.046, tag='surprise_before')
+    _text(win, '→', -0.040, height=TITLE_HEIGHT, x=0).draw()
+    _ball(win, outcome, 0.250, -0.040, radius=0.046, tag='surprise_after')
+    _draw_surprise_hat(win, (0.250, -0.040), 0.046, tag='surprise_explanation')
+    _exp_body(win, 'The underlying pattern stays the same.', -0.222).draw()
+    _footer(win, 'Press SPACE to reveal the surprise ball')
+    win.flip()
+    _wait_space(win)
 
 
 def _reward_title(win, choosing=False):
@@ -554,17 +685,18 @@ def _reward_title(win, choosing=False):
     ).draw()
 
 
-def _draw_reward_urn(win, urn, x, scale=1.0, y_offset=0):
-    """Draw cached closed-urn textures (same display dimensions on both sides)."""
+def _draw_reward_urn(win, urn, x, scale=1.0, y_offset=0, opened=False):
+    """Cache existing urn textures, never recolor urns."""
     if scale <= 0.001:
         return
-    image = str(urn["closed_image"])
-    width, height = params.URN_IMAGE_SIZE
-    size = (width * scale, height * scale)
-    key = (id(win), image, size)
+    image = str(urn['opened_image'] if opened else urn['closed_image'])
+    size = (params.URN_IMAGE_SIZE[0] * scale,
+            params.URN_IMAGE_SIZE[1] * scale)
+    key = (id(win), 'reward_urn', image, size)
     stim = _IMAGE_CACHE.get(key)
     if stim is None:
-        stim = visual.ImageStim(win=win, image=image, size=size)
+        stim = visual.ImageStim(win=win, image=image, size=size,
+                                interpolate=True)
         _IMAGE_CACHE[key] = stim
     stim.pos = (x, params.URN_LEFT_POS[1] + y_offset)
     stim.draw()
@@ -577,7 +709,7 @@ def _render_reward_stage(win, assignment, choosing=True):
         urn = assignment[side]
         x = params.URN_LEFT_POS[0] if side == "left" else params.URN_RIGHT_POS[0]
         _draw_reward_urn(win, urn, x, REWARD_CHOICE_URN_SCALE)
-        _reward_card(win, urn, x, width=0.53)
+        task.draw_selection_condition_text(win, urn, x)
     win.flip()
 
 
@@ -599,6 +731,33 @@ def _standard_urn_selection(win, assignment):
 
         if "right" in keys:
             return "right"
+
+
+def _match_urn_rules(assignment):
+    """Both rewards have identical k and underlying cycle; only payoff differs."""
+    ambiguous = next(u for u in assignment.values() if u['urn_type'] == 'ambiguous')
+    fixed = next(u for u in assignment.values() if u['urn_type'] == 'deterministic')
+    fixed['ambiguous_k'] = ambiguous['ambiguous_k']
+    fixed['participant_knows_k'] = ambiguous['participant_knows_k']
+    fixed['cycle'] = list(ambiguous['cycle'])
+    return assignment
+
+
+def _urn_comparison(win, assignment):
+    """Step 6: same two-urn names, labels, reward text and colors as new task."""
+    _exp_title(win, 'Choose how to earn points', y=0.412).draw()
+    _exp_body(win, 'Both urns use the same game. Only the rewards differ.',
+              y=0.330, wrap=1.50).draw()
+    for side in ('left', 'right'):
+        urn = assignment[side]
+        x = (params.URN_LEFT_POS[0] if side == 'left'
+             else params.URN_RIGHT_POS[0])
+        _draw_reward_urn(win, urn, x, REWARD_CHOICE_URN_SCALE)
+        task.draw_selection_condition_text(win, urn, x)
+    _text(win, 'Press SPACE to start the practice rounds', -0.437,
+          height=NAV_HEIGHT, color=MUTED).draw()
+    win.flip()
+    _wait_space(win)
 
 
 def _round_summary(win, block_number, points, correct_count):
@@ -781,82 +940,45 @@ def _round_summary(win, block_number, points, correct_count):
     _wait_space(win)
 
 
-# -----------------------------------------------------------------------------
-# Minimal practice prediction display (does not modify the real task).
-# -----------------------------------------------------------------------------
-# Minimal top-left labels + circles (PsychoPy height units).
-# Adjust these values to move or resize the interface.
-PRACTICE_INFO_LABEL_X = -0.66
-PRACTICE_INFO_BALL_START_X = -0.46
-PRACTICE_INFO_ROW_Y = (0.374, 0.326)
-PRACTICE_URN_TYPE_Y = 0.422
-PRACTICE_INFO_TEXT_HEIGHT = 0.019
-PRACTICE_INFO_BALL_RADIUS = 0.007
-PRACTICE_INFO_BALL_SPACING = 0.023
-PRACTICE_INFO_COLOR = "#253f62"
-PRACTICE_INFO_EMPTY_COLOR = "#536e8c"
-
-# Simple score text and a thin line, as in the second mockup.
-PRACTICE_BAR_Y = 0.26
-PRACTICE_SCORE_LEFT_X = -0.62
-PRACTICE_SCORE_RIGHT_X = 0.58
-PRACTICE_REMINDER_AFTER = 3.0
-PRACTICE_GUESS_Y = -0.040
-# Short, optional feedback animations: preserve the urn -> history movement.
-PRACTICE_FEEDBACK_SECONDS = 0.14
-
-
 def _practice_draw_prediction(win, selected_urn, sequence, trial_results,
                               guess_color=None, reminder=False,
-                              points_override=None):
-    """Practice prediction screen, using cached PsychoPy stimuli."""
+                              points_override=None, tutorial_intro=False,
+                              tutorial_prompt=None, surprise_indices=(),
+                              tutorial_heading=None, hide_urn_type=False,
+                              tutorial_first_guess=False):
+    """Practice prediction UI, also used for in-place tutorial explanations."""
     known = bool(selected_urn["participant_knows_k"])
     visible_length = int(selected_urn["ambiguous_k"]) if known else 0
     reward_type = (
-        "Fixed reward"
-        if selected_urn["urn_type"] == "deterministic"
-        else "Performance-dependent reward"
+        "Guaranteed points" if selected_urn["urn_type"] == "deterministic"
+        else "Points per correct guess"
     )
 
-    visual.TextStim(
-        win,
-        text="Urn type",
-        pos=(PRACTICE_INFO_LABEL_X, PRACTICE_URN_TYPE_Y),
-        height=0.019,
-        color=PRACTICE_INFO_COLOR,
-        alignText="left",
-        anchorHoriz="left",
-    ).draw()
+    if tutorial_intro:
+        _exp_title(win, tutorial_heading or 'Try it out', y=0.430).draw()
+    elif not hide_urn_type:
+        _left_text(win, 'Urn type', PRACTICE_INFO_LABEL_X,
+                   PRACTICE_URN_TYPE_Y, color=PRACTICE_INFO_COLOR).draw()
+        _left_text(win, reward_type, PRACTICE_INFO_BALL_START_X - 0.01,
+                   PRACTICE_URN_TYPE_Y, color=PRACTICE_INFO_COLOR,
+                   bold=True).draw()
 
-    visual.TextStim(
-        win,
-        text=reward_type,
-        pos=(PRACTICE_INFO_BALL_START_X-0.01, PRACTICE_URN_TYPE_Y),
-        height=0.019,
-        bold=True,
-        color=PRACTICE_INFO_COLOR,
-        alignText="left",
-        anchorHoriz="left",
-    ).draw()
-    # Reuse text and indicator circles on every animation frame.
-        
     pattern_label = (
-        f"Pattern length ({visible_length})"
-        if known else "Pattern length (?)"
+        f"Pattern length ({visible_length})" if known else "Pattern length (<4)"
     )
-
-    for row_index, (label, filled) in enumerate((
+    # All conditions show the same surprise-ball label as the newer version.
+    info_rows = [
         (pattern_label, visible_length),
-        (f"Flipped balls ({PRACTICE_FLIPS})", PRACTICE_FLIPS),
-    )):
-
+        (f"Surprise balls ({PRACTICE_FLIPS})", PRACTICE_FLIPS),
+    ]
+    for row_index, (label, filled) in enumerate(info_rows):
         y = PRACTICE_INFO_ROW_Y[row_index]
-        task.draw_text(
-            win, label, (PRACTICE_INFO_LABEL_X, y),
-            height=PRACTICE_INFO_TEXT_HEIGHT,
-            color=PRACTICE_INFO_COLOR, align_text="left",
-        ).draw()
-        total_balls = 3 if row_index == 0 else PRACTICE_FLIPS
+        _left_text(win, label, PRACTICE_INFO_LABEL_X, y,
+                   height=PRACTICE_INFO_TEXT_HEIGHT,
+                   color=PRACTICE_INFO_COLOR).draw()
+        # Known k: draw exactly k filled circles (no unused outlines).
+        # Unknown k: retain three hollow circles to represent an undisclosed length.
+        total_balls = (visible_length if known else 3) if row_index == 0 else PRACTICE_FLIPS
         for index in range(total_balls):
             x = PRACTICE_INFO_BALL_START_X + index * PRACTICE_INFO_BALL_SPACING
             circle = task._cached(
@@ -872,44 +994,68 @@ def _practice_draw_prediction(win, selected_urn, sequence, trial_results,
             circle.lineColor = (PRACTICE_INFO_COLOR if active
                                 else PRACTICE_INFO_EMPTY_COLOR)
             circle.draw()
+            
+            # Question marks only for unknown pattern length
+            if row_index == 0 and not known:
+                _text(
+                    win,
+                    "?",
+                    y=y,
+                    x=x,
+                    height=0.012,
+                    color=PRACTICE_INFO_COLOR,
+                    bold=True
+                ).draw()
 
-    fixed = selected_urn["urn_type"] == "deterministic"
+
+
     correct = sum(bool(v) for v in trial_results)
-    completed = len(trial_results)
-    accuracy = 100 * correct / completed if completed else 0
-    points = (selected_urn["value"] if fixed
-              else correct * params.REWARD_PER_CORRECT_GUESS)
-    if points_override is not None:
-        points = points_override
-
-    progress = min(1.0, correct / PRACTICE_TRIALS)
     bar_left = PRACTICE_SCORE_LEFT_X
     bar_right = PRACTICE_SCORE_RIGHT_X - 0.13
     bar_width = bar_right - bar_left
     bar_y = PRACTICE_BAR_Y
     bar_height = 0.035
-
-    # Reuse the exact cached rounded-bar drawing function from urn_task.py.
     task._draw_pill(win, bar_left, bar_right, bar_y, bar_height,
                     "#d6dce5", "practice_track")
-    fill_width = bar_width * progress
+
+    # Same scoring basis as the main task: the bar fills for correct guesses,
+    # not merely for the number of balls already drawn.
+    fraction = min(1.0, correct / PRACTICE_TRIALS)
+
+    fill_width = bar_width * fraction
     if fill_width >= bar_height:
         task._draw_pill(win, bar_left, bar_left + fill_width, bar_y,
                         bar_height, "#789bc0", "practice_fill")
 
-    task.draw_text(
-        win, f"{points:g} pts", (bar_left + 0.018, bar_y),
-        height=0.021, bold=True,
-        color="#ffffff" if fill_width >= 0.10 else PRACTICE_INFO_COLOR,
-        align_text="left",
-    ).draw()
-    task.draw_text(
-        win, f"{accuracy:.0f}% correct", (PRACTICE_SCORE_RIGHT_X, bar_y),
-        height=0.020, color=PRACTICE_INFO_COLOR, align_text="right",
-    ).draw()
+    fixed = selected_urn["urn_type"] == "deterministic"
+    completed = len(trial_results)
+    accuracy = 100 * correct / completed if completed else 0
+    # The tutorial illustrates possible points; they are not paid or recorded
+    # as the participant's actual practice reward.
+    points = (correct * params.REWARD_PER_CORRECT_GUESS if tutorial_intro else
+              selected_urn["value"] if fixed else
+              correct * params.REWARD_PER_CORRECT_GUESS)
+    if points_override is not None:
+        points = points_override
+    _left_text(win, f'{points:g} pts', bar_left + 0.018, bar_y,
+               height=0.021, bold=True,
+               color='#ffffff' if fill_width >= 0.10 else PRACTICE_INFO_COLOR).draw()
+    _right_text(win, f'{accuracy:.0f}% correct', PRACTICE_SCORE_RIGHT_X, bar_y,
+                height=0.020, color=PRACTICE_INFO_COLOR).draw()
 
-    task.draw_sequence_feedback(win, sequence)
+    _practice_draw_history(win, sequence, surprise_indices=surprise_indices)
     task.draw_selected_open_urn(win, selected_urn)
+
+    if tutorial_prompt:
+        # Same caption position for the pattern, magician and continuation.
+        size = BODY_HEIGHT if tutorial_intro else 0.024
+        _text(win, tutorial_prompt, -0.115,
+              height=size,
+              bold=True, color=INSTRUCTION_NAVY,
+              wrap_width=1.40).draw()
+    if tutorial_intro:
+        _text(win, 'Press B for blue or M for magenta', -0.202,
+              height=NAV_HEIGHT, color='#66758b').draw()
 
     if guess_color is not None:
         guess_ball = task._cached(
@@ -923,46 +1069,57 @@ def _practice_draw_prediction(win, selected_urn, sequence, trial_results,
         guess_ball.lineColor = params.ball_display_color(guess_color)
         guess_ball.draw()
 
-    if reminder:
-        _text(win, "Press B for blue or M for magenta", -0.145,
+    if (reminder or tutorial_first_guess) and not tutorial_intro:
+        # Show key guidance immediately on the first tutorial guess;
+        # otherwise keep the usual delayed reminder.
+        _text(win, "Press B for blue or M for magenta", -0.202,
               0.023, color="#66758b").draw()
 
 
-def _practice_collect_prediction(win, selected_urn, sequence, trial_results):
+def _practice_collect_prediction(win, selected_urn, sequence, trial_results,
+                                 tutorial_intro=False, tutorial_prompt=None,
+                                 surprise_indices=(), allow_back=False,
+                                 tutorial_first_guess=False):
     """Record reaction time from initial display; show hint only after 3 s."""
     event.clearEvents()
     clock = core.Clock()
     reminder_shown = False
     win.callOnFlip(clock.reset)
     # Time responses from when the prediction screen appears.
-    _practice_draw_prediction(win, selected_urn, sequence, trial_results)
+    _practice_draw_prediction(win, selected_urn, sequence, trial_results,
+                              tutorial_intro=tutorial_intro,
+                              tutorial_prompt=tutorial_prompt,
+                              surprise_indices=surprise_indices,
+                              tutorial_first_guess=tutorial_first_guess)
     win.flip()
     while True:
-        keys = event.getKeys(keyList=list(params.GUESS_KEYS.keys()) + ["escape"],
-                             timeStamped=clock)
+        allowed_keys = list(params.GUESS_KEYS.keys()) + ["escape"]
+        if allow_back:
+            allowed_keys.append("backspace")
+        keys = event.getKeys(keyList=allowed_keys, timeStamped=clock)
         if keys:
             key, rt = keys[0]
             if key == "escape":
                 task.quit_experiment(win)
+            if key == "backspace":
+                return None, None
             return params.GUESS_KEYS[key], float(rt)
         if not reminder_shown and clock.getTime() >= PRACTICE_REMINDER_AFTER:
             reminder_shown = True
             _practice_draw_prediction(win, selected_urn, sequence,
-                                      trial_results, reminder=True)
+                                      trial_results, reminder=True,
+                                      tutorial_intro=tutorial_intro,
+                                      tutorial_prompt=tutorial_prompt,
+                                      surprise_indices=surprise_indices,
+                                      tutorial_first_guess=tutorial_first_guess)
             win.flip()
         core.wait(0.005)
 
 
-# Animation settings (PsychoPy height units). Change these values to tune it.
-PRACTICE_REVEAL_BALL_RADIUS = 0.12  # Larger than draw-history balls.
-PRACTICE_START_HEIGHT_FRACTION = 0.35  # Higher value = starts higher in urn.
-PRACTICE_RISE_FRAMES = 1
-PRACTICE_FLIP_HALF_FRAMES = 1  # Always completes both halves of the flip.
-PRACTICE_HISTORY_FRAMES = 1
-
-
 def _practice_animate_ball_reveal(win, selected_urn, sequence,
-                                  previous_results, guess, outcome):
+                                  previous_results, guess, outcome,
+                                  is_surprise=False, surprise_indices=(),
+                                  tutorial_intro=False):
     """Rise as grey ball, visibly flip every time, shrink into history."""
     previous_sequence = sequence[:-1]
     history_pos = task.get_feedback_ball_position(len(sequence) - 1)
@@ -979,14 +1136,16 @@ def _practice_animate_ball_reveal(win, selected_urn, sequence,
     # Create only one stimulus per prediction rather than one per frame.
     moving_ball = visual.Circle(
         win=win, pos=start_pos, radius=reveal_radius,
-        fillColor=hidden_grey, lineColor="black", lineWidth=2,
+        fillColor=hidden_grey, lineColor=None, lineWidth=2,
         edges=48,
     )
 
-    def frame(pos, color, radius, width_scale=1.0):
+    def frame(pos, color, radius, width_scale=1.0, show_hat=False):
         # Previous observations stay visible until the new ball reaches history.
-        _practice_draw_prediction(win, selected_urn,
-                                  previous_sequence, previous_results)
+        _practice_draw_prediction(
+            win, selected_urn, previous_sequence, previous_results,
+            surprise_indices=surprise_indices, tutorial_intro=tutorial_intro,
+        )
         moving_ball.pos = pos
         moving_ball.fillColor = params.ball_display_color(color)
         moving_ball.size = (
@@ -994,6 +1153,8 @@ def _practice_animate_ball_reveal(win, selected_urn, sequence,
             2 * radius,
         )
         moving_ball.draw()
+        if is_surprise and show_hat:
+            _draw_surprise_hat(win, pos, radius, tag="moving")
         win.flip()
 
     def ease(t):
@@ -1016,26 +1177,34 @@ def _practice_animate_ball_reveal(win, selected_urn, sequence,
         frame(reveal_pos, hidden_grey, reveal_radius, width)
     for i in range(PRACTICE_FLIP_HALF_FRAMES + 1):
         width = i / PRACTICE_FLIP_HALF_FRAMES
-        frame(reveal_pos, outcome, reveal_radius, width)
+        frame(reveal_pos, outcome, reveal_radius, width, show_hat=True)
 
     # Move to history while reducing the radius to the precise history radius.
     for i in range(PRACTICE_HISTORY_FRAMES + 1):
         t = ease(i / PRACTICE_HISTORY_FRAMES)
         radius = reveal_radius + (history_radius - reveal_radius) * t
-        frame(interpolate(reveal_pos, history_pos, t), outcome, radius)
+        frame(interpolate(reveal_pos, history_pos, t), outcome, radius,
+              show_hat=True)
 
 
 def _practice_show_outcome(win, selected_urn, sequence, trial_results,
-                           guess, outcome, correct, final_trial, trial_number):
+                           guess, outcome, correct, final_trial, trial_number,
+                           is_surprise=False, surprise_indices=(),
+                           tutorial_intro=False):
     """Brief guessed-color preview, then original urn-to-history animation."""
     previous = trial_results[:-1]
 
     # Hidden ball rises, flips to the actual outcome, then enters history.
     _practice_animate_ball_reveal(
-        win, selected_urn, sequence, previous, guess, outcome
+        win, selected_urn, sequence, previous, guess, outcome,
+        is_surprise=is_surprise, surprise_indices=surprise_indices,
+        tutorial_intro=tutorial_intro,
     )
 
-    _practice_draw_prediction(win, selected_urn, sequence, trial_results)
+    _practice_draw_prediction(
+        win, selected_urn, sequence, trial_results,
+        surprise_indices=surprise_indices, tutorial_intro=tutorial_intro,
+    )
     if final_trial:
         _text(win, "Press SPACE to continue", -0.18, 0.024,
               color="#000000").draw()
@@ -1046,223 +1215,235 @@ def _practice_show_outcome(win, selected_urn, sequence, trial_results,
         core.wait(PRACTICE_FEEDBACK_SECONDS)
 
 
-def _practice_block(win, block_number, condition, k):
-    """Ten prediction trials with the existing task visuals and RTs."""
-    deterministic_reward = random.choice(PRACTICE_DETERMINISTIC_VALUES)
-
-    assignment = task.assign_urns_to_sides(
-        deterministic_value=deterministic_reward,
-        ambiguous_condition=condition,
-        k=k,
-    )
-    # Both urns have the same prediction-task parameters.
-    ambiguous_urn = next(
-        urn for urn in assignment.values()
-        if urn["urn_type"] == "ambiguous"
-    )
-
-    deterministic_urn = next(
-        urn for urn in assignment.values()
-        if urn["urn_type"] == "deterministic"
-    )
-
-    # Copy the task parameters, but preserve reward type and value.
-    deterministic_urn["ambiguous_k"] = ambiguous_urn["ambiguous_k"]
-    deterministic_urn["participant_knows_k"] = ambiguous_urn["participant_knows_k"]
-    deterministic_urn["cycle"] = list(ambiguous_urn["cycle"])
-    # Fixation before EVERY urn choice, including the second practice round.
-    _fixation(win)
-    selected_side = _standard_urn_selection(win, assignment)
-    selected_urn = assignment[selected_side]
-    task.animate_selected_urn_transition(
-        win, selected_urn, selected_side, assignment,
-    )
-    sequence = task.generate_latent_sequence(
-        selected_urn["cycle"], params.N_INITIAL_DRAWS,
-    )
-    
-    # Start with all trials following the underlying pattern.
-    outcomes = [False] * PRACTICE_TRIALS
-
-    # Randomly place the flipped ball(s) only in the last N trials.
-    flip_positions = random.sample(
-        range(PRACTICE_TRIALS - PRACTICE_FLIP_LAST_N, PRACTICE_TRIALS),
-        PRACTICE_FLIPS
-    )
-
-    for position in flip_positions:
-        outcomes[position] = True
-
+def _run_guessing_example(win):
+    """Step 5: actual B/M guessing, one surprise on guess 7, no real points."""
+    _simple_page(win, 'Try it out',
+                 'Guess the next ball. Press B for blue or M for magenta.')
+    urn = task.create_ambiguous_urn(
+        params.PRETTY_URN_NAMES[0], 'Example urn', 'known', EXAMPLE_K,
+        cycle=list(EXAMPLE_CYCLE))
+    urn['_tutorial_step'] = 1
+    sequence = list(task.generate_latent_sequence(
+        list(EXAMPLE_CYCLE), params.N_INITIAL_DRAWS))
     trials = []
-
-    
-    for trial_number, is_flipped in enumerate(outcomes, start=1):
-        previous_results = [entry["correct"] for entry in trials]
-
-        # Show pattern-length information at the start of every practice round.
-        if trial_number == 1:
-            hint = _hint_for_trial(selected_urn, condition, trial_number)
-
-            if hint:
-                _context_hint(
-                    win, selected_urn, sequence,
-                    previous_results, *hint
-                )
-
-
-        guess, reaction_time = _practice_collect_prediction(
-            win, selected_urn, sequence, previous_results,
-        )
-        prediction_index = params.N_INITIAL_DRAWS + trial_number - 1
-        outcome, pattern_prediction = task.generate_next_outcome(
-            selected_urn=selected_urn,
-            prediction_index=prediction_index,
-            is_noise_trial=is_flipped,
-        )
-        # The demonstration occurs after the response, immediately before
-        # revealing the actual flipped outcome. Only the first round is guided.
-        if is_flipped:
-            _flipped_outcome_hint(
-                win, selected_urn, sequence, previous_results,
-            )
+    surprise_indices = []
+    for trial_number in range(1, EXAMPLE_TRIALS + 1):
+        previous = [entry['correct'] for entry in trials]
+        prompt = ('Make your guess' if trial_number == 1 else
+                  'Keep guessing')
+        guess, rt = _practice_collect_prediction(
+            win, urn, sequence, previous,
+            tutorial_intro=True, tutorial_prompt=prompt,
+            surprise_indices=surprise_indices,
+            tutorial_first_guess=(trial_number == 1))
+        pred_index = params.N_INITIAL_DRAWS + trial_number - 1
+        surprise = (trial_number == EXAMPLE_SURPRISE_TRIAL)
+        outcome, predicted = task.generate_next_outcome(
+            selected_urn=urn, prediction_index=pred_index,
+            is_noise_trial=surprise)
+        if surprise:
+            _surprise_explanation(win, urn, sequence, previous,
+                                  predicted, outcome)
+            surprise_indices.append(trial_number - 1)
         sequence.append(outcome)
         correct = (guess == outcome)
         trials.append({
-            "trial_number": trial_number,
-            "guess": guess,
-            "outcome": outcome,
-            "correct": correct,
-            "response_time": reaction_time,
-            "is_noise_trial": is_flipped,
-            "pattern_prediction": pattern_prediction,
-            "prediction_index": prediction_index,
+            'trial_number': trial_number, 'guess': guess,
+            'outcome': outcome, 'correct': correct,
+            'response_time': rt, 'is_noise_trial': surprise,
+            'pattern_prediction': predicted,
+            'prediction_index': pred_index,
         })
         _practice_show_outcome(
-            win, selected_urn, sequence,
-            [entry["correct"] for entry in trials],
+            win, urn, sequence, [t['correct'] for t in trials],
             guess, outcome, correct,
-            final_trial=(trial_number == PRACTICE_TRIALS),
+            final_trial=(trial_number == EXAMPLE_TRIALS),
             trial_number=trial_number,
-        )
-
-    correct_count = sum(entry["correct"] for entry in trials)
-    points = (correct_count * params.REWARD_PER_CORRECT_GUESS
-              if selected_urn["urn_type"] == "ambiguous"
-              else selected_urn["value"])
-    _round_summary(win, block_number, points, correct_count)
-
+            is_surprise=surprise,
+            surprise_indices=surprise_indices,
+            tutorial_intro=True)
     return {
-        "practice_block": block_number,
-        "condition": condition,
-        "k": k,  # never shown when the condition is unknown
-        "selected_side": selected_side,
-        "selected_urn_type": selected_urn["urn_type"],
-        "trial_data": trials,
-        "number_correct": correct_count,
-        "accuracy": correct_count / PRACTICE_TRIALS,
-        "hypothetical_points": points,
-        "full_sequence": list(sequence),
+        'k': EXAMPLE_K, 'cycle': list(EXAMPLE_CYCLE),
+        'trial_data': trials, 'full_sequence': list(sequence),
+        'surprise_trial': EXAMPLE_SURPRISE_TRIAL,
     }
 
 
+def _practice_block(win, block_number, condition, k,
+                    prepared_assignment=None, skip_fixation=False):
+    """Four ordinary rounds: same choices, guessing, scoring, and RTs as before."""
+    assignment = prepared_assignment
+    if assignment is None:
+        assignment = task.assign_urns_to_sides(
+            deterministic_value=random.choice(PRACTICE_DETERMINISTIC_VALUES),
+            ambiguous_condition=condition, k=k)
+    _match_urn_rules(assignment)
+    if not skip_fixation:
+        _fixation(win)
+    side = _standard_urn_selection(win, assignment)
+    selected_urn = assignment[side]
+    task.animate_selected_urn_transition(win, selected_urn, side, assignment)
+    sequence = list(task.generate_latent_sequence(
+        selected_urn['cycle'], params.N_INITIAL_DRAWS))
+    flips = [False] * PRACTICE_TRIALS
+    possible_flips = range(max(0, PRACTICE_TRIALS-PRACTICE_FLIP_LAST_N),
+                           PRACTICE_TRIALS)
+    for i in random.sample(list(possible_flips), PRACTICE_FLIPS):
+        flips[i] = True
+    trials = []
+    surprise_indices = []
+    for trial_number, surprise in enumerate(flips, start=1):
+        previous = [t['correct'] for t in trials]
+        if trial_number == 1:
+            hint = _hint_for_trial(selected_urn, condition, trial_number)
+            if hint:
+                _context_hint(win, selected_urn, sequence, previous, *hint)
+        guess, rt = _practice_collect_prediction(
+            win, selected_urn, sequence, previous,
+            surprise_indices=surprise_indices)
+        pred_index = params.N_INITIAL_DRAWS + trial_number - 1
+        outcome, predicted = task.generate_next_outcome(
+            selected_urn=selected_urn,
+            prediction_index=pred_index,
+            is_noise_trial=surprise)
+        if surprise:
+            if block_number == 1:
+                _surprise_hint(
+                    win,
+                    selected_urn,
+                    sequence,
+                    previous,
+                    predicted,
+                    outcome
+                )
+            surprise_indices.append(trial_number - 1)
+        sequence.append(outcome)
+        correct = guess == outcome
+        trials.append({
+            'trial_number': trial_number,
+            'guess': guess, 'outcome': outcome,
+            'correct': correct, 'response_time': rt,
+            'is_noise_trial': surprise,
+            'pattern_prediction': predicted,
+            'prediction_index': pred_index,
+        })
+        _practice_show_outcome(
+            win, selected_urn, sequence,
+            [entry['correct'] for entry in trials],
+            guess, outcome, correct,
+            final_trial=(trial_number == PRACTICE_TRIALS),
+            trial_number=trial_number,
+            is_surprise=surprise,
+            surprise_indices=surprise_indices)
+    correct_count = sum(t['correct'] for t in trials)
+    points = (correct_count * params.REWARD_PER_CORRECT_GUESS
+              if selected_urn['urn_type'] == 'ambiguous'
+              else selected_urn['value'])
+    _round_summary(win, block_number, points, correct_count)
+    return {
+        'practice_block': block_number,
+        'condition': condition, 'k': k,
+        'selected_side': side,
+        'selected_urn_type': selected_urn['urn_type'],
+        'surprise_trial_numbers': [i + 1 for i in surprise_indices],
+        'trial_data': trials,
+        'number_correct': correct_count,
+        'accuracy': correct_count / PRACTICE_TRIALS,
+        'hypothetical_points': points,
+        'full_sequence': list(sequence),
+    }
+
 
 def run_training(win=None, conditions=None):
-    """Run ROUND_N ten-guess practice rounds.
+    """Run the six-step tutorial, followed by ROUND_N ordinary practice rounds.
 
-    Args:
-        win: Optional existing PsychoPy window with units='height'. If absent,
-             a window is created and closed by this function.
-        conditions: Optional explicit sequence of ROUND_N conditions. The first
-                    two must be known, unknown. Remaining entries may vary.
-
-    Returns:
-        A dictionary of PRACTICE-ONLY results. No experimental data or
-        staircase state is changed.
+    An optional existing PsychoPy window must use units='height'.
+    Conditions start known, unknown; remaining trials are balanced and shuffled.
+    No experimental parameters or staircase state are permanently changed.
     """
     if not isinstance(ROUND_N, int) or isinstance(ROUND_N, bool) or ROUND_N < 2:
-        raise ValueError("ROUND_N must be an integer of at least 2")
-
+        raise ValueError('ROUND_N must be at least 2')
     if conditions is None:
-        remaining_n = ROUND_N - 2
-
-        # Split remaining rounds equally between known and unknown
-        n_known = remaining_n // 2
-        n_unknown = remaining_n - n_known
-
-        remaining_conditions = (
-            ["known"] * n_known
-            + ["unknown"] * n_unknown
-        )
-
-        # Randomize their order
+        remaining = ROUND_N - 2
+        remaining_conditions = (['known'] * (remaining // 2) +
+                                ['unknown'] * (remaining - remaining // 2))
         random.shuffle(remaining_conditions)
-
-        # First two rounds are fixed
-        conditions = ["known", "unknown"] + remaining_conditions
+        conditions = ['known', 'unknown'] + remaining_conditions
     else:
         conditions = list(conditions)
-        if (len(conditions) != ROUND_N
-                or conditions[:2] != ["known", "unknown"]
-                or any(c not in ("known", "unknown") for c in conditions)):
-            raise ValueError(
-                "conditions must contain ROUND_N entries, beginning "
-                "with 'known', 'unknown'"
-            )
+        if (len(conditions) != ROUND_N or
+                conditions[:2] != ['known', 'unknown'] or
+                any(c not in ('known', 'unknown') for c in conditions)):
+            raise ValueError('conditions must have ROUND_N values, starting known, unknown')
 
     owns_window = win is None
     if owns_window:
-        win = visual.Window(
-            size=params.WINDOW_SIZE,
-            fullscr=params.FULLSCREEN,
-            color=params.BACKGROUND_COLOR,
-            units="height",
-            monitor=params.MONITOR_NAME,
-        )
-
+        win = visual.Window(size=params.WINDOW_SIZE, fullscr=params.FULLSCREEN,
+                            color=params.BACKGROUND_COLOR, units='height',
+                            monitor=params.MONITOR_NAME,
+                            gammaErrorPolicy='warn')
     try:
         
-        _opening_screen(
-            win,
-            "Practice",
-            (
-                f"You will now complete {ROUND_N} practice rounds "
-                "to become familiar with the task.\n\n"
-                "Practice rounds do not count toward your final score."
-            ),
-        )
-
-        _practice_step_screen(win, 1)
-
-        _practice_step_screen(win, 2)
-
         with _practice_header_values():
-            results = []
-            for block_number, condition in enumerate(conditions, start=1):
-                # Use plausible k values without revealing the unknown one.
-                k =random.choice((2, 3))
-                results.append(_practice_block(
-                    win, block_number, condition, k
-                ))
 
-        _opening_screen(
-            win,
-            "Practice completed",
-            (
-                "The main task will now begin.\n\n"
-                "From this point onward, all points you earn "
-                "will count toward your final score.\n\n"
-            ),
-            footer="Press SPACE to continue",
-        )
-        return {"practice_blocks": results,
-                "condition_order": list(conditions),}
+            # First four explanation pages
+            _run_intro_pages(win)
+
+            # Start the actual practice
+            _simple_page(
+                win,
+                "\n\nYou will now practice the task\n\n"
+                "During practice, you will see reminders of the rules.\n\n" 
+                "Surprise balls will be marked with a hat.\n\n"
+                "In the main task, these reminders and hats will no longer appear.\n\n",
+                "\n\n\n\nPoints earned during practice do not count towards your final score.\n\n"
+                "You will be told when practice ends and points start counting.",
+                footer="Press SPACE to start practicing",
+                title_y=0.09, #before 145
+                body_y=-0.2, #before 075
+                title_wrap=1.1,
+                title_height=0.045,
+            )
+
+            results = []
+
+            k_options = tuple(
+                getattr(params, 'AMBIGUOUS_K_OPTIONS', (1, 2, 3))
+            )
+
+            for block_number, condition in enumerate(
+                conditions, start=1
+            ):
+                k = random.choice(k_options)
+
+                results.append(
+                    _practice_block(
+                        win,
+                        block_number,
+                        condition,
+                        k,
+                        skip_fixation=(block_number == 1)
+                    )
+                )
+
+
+        _simple_page(win, 'Practice completed',
+                     'The main task starts now. From here on, points count.\n\n'
+                     'Surprise balls will not be marked with hats.',
+                     footer='Press SPACE to begin the main task')
+        return {'tutorial': None, 'practice_blocks': results,
+                'condition_order': list(conditions)}
     finally:
         _TEXT_CACHE.clear()
         _IMAGE_CACHE.clear()
+        _SHAPE_CACHE.clear()
         if owns_window:
-            task._clear_visual_cache(win)
+            if hasattr(task, '_clear_visual_cache'):
+                task._clear_visual_cache(win)
             win.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     run_training()
+
+

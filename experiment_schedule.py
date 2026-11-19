@@ -42,23 +42,39 @@ def create_balanced_schedule():
         schedule_pairs.extend(extra[:remainder])
 
     random.shuffle(schedule_pairs)
+    # Five effective staircase updates per condition.
+    # Balance the 4-point and 8-point steps across both staircases.
 
+    extra_step = random.choice(params.STAIRCASE_STEP_SIZES)
+
+    steps_by_condition = {
+        "known": [4, 4, 8, 8, extra_step],
+        "unknown": [4, 4, 8, 8, 12 - extra_step],
+    }
+
+    for steps in steps_by_condition.values():
+        random.shuffle(steps)
+
+    condition_counter = {"known": 0, "unknown": 0}
     schedule = []
 
     for index, (condition, k) in enumerate(schedule_pairs):
 
-        # Assign staircase stages by block position.
-        stage_index = min(
-            index // params.ROUNDS_PER_BLOCK,
-            len(params.STAIRCASE_STEP_SIZES) - 1
+        condition_counter[condition] += 1
+        occurrence = condition_counter[condition]
+
+        # No update after the sixth and final occurrence.
+        step = (
+            steps_by_condition[condition][occurrence - 1]
+            if occurrence <= 5
+            else None
         )
 
         schedule.append({
             "block_number": index + 1,
             "condition": condition,
             "k": k,
-            "stage": stage_index + 1,
-            "step": params.STAIRCASE_STEP_SIZES[stage_index],
+            "step": step,
         })
 
     return schedule

@@ -15,6 +15,7 @@ import urn_params as params
 import participant_info
 import consent_task
 import fatigue_task
+import surprise_task
 import training_task
 import experiment_schedule
 import urn_task
@@ -29,7 +30,7 @@ def show_welcome_screen(win):
         win=win,
         text="Welcome!",
         pos=(0, 0.16),
-        height=0.055,
+        height=params.TITLE_HEIGHT,
         bold=True,
         color="#172b49",
     ).draw()
@@ -44,9 +45,9 @@ def show_welcome_screen(win):
             "complete the tasks."
         ),
         pos=(0, -0.015),
-        height=0.027,
+        height=params.BODY_HEIGHT,
         wrapWidth=1.25,
-        color="#576a82",
+        color="#172b49",
         alignText="center",
     ).draw()
 
@@ -67,7 +68,7 @@ def show_closing_screen(win):
     visual.TextStim(
         win=win,
         text="This concludes our experiment. Thank you for participating!",
-        pos=(0, 0.05), height=0.045, wrapWidth=1.30,
+        pos=(0, 0.05), height=params.TITLE_HEIGHT, wrapWidth=1.30,
         bold=True, color="#172b49", alignText="center",
     ).draw()
     visual.TextStim(
@@ -83,10 +84,16 @@ def run_main_urn_rounds(win, participant_id, writer):
     """Run the balanced 18-round design, updating one shared staircase."""
     schedule = experiment_schedule.create_balanced_schedule()
     
-    staircase = {
+    staircases = {
+    "known": {
         "value": params.STAIRCASE_INITIAL_VALUE,
         "previous_choice": None,
-    }
+    },
+    "unknown": {
+        "value": params.STAIRCASE_INITIAL_VALUE,
+        "previous_choice": None,
+    },
+}
 
     results = []
 
@@ -100,6 +107,11 @@ def run_main_urn_rounds(win, participant_id, writer):
         block_number = (
             (round_number - 1) // params.ROUNDS_PER_BLOCK
         ) + 1
+
+        condition = assigned["condition"]
+
+        # Select only the staircase belonging to this condition.
+        staircase = staircases[condition]
 
         offered = staircase["value"]
 
@@ -119,11 +131,20 @@ def run_main_urn_rounds(win, participant_id, writer):
         selected = result["selected_urn_type"]
 
         # Update the deterministic offer for the next round.
-        urn_task.update_staircase(
-            staircase,
-            selected,
-            round_number,
-            k_value=assigned["k"],
+        step = assigned["step"]
+
+        if step is not None:
+            urn_task.update_staircase(
+                staircase,
+                selected,
+                round_number,
+                k_value=assigned["k"],
+                step=step,
+            )
+
+        result["staircase_step"] = step
+        result["next_deterministic_reward"] = (
+            staircase["value"] if step is not None else None
         )
 
         # Build the three raw-data CSV outputs.
@@ -206,6 +227,7 @@ def main():
         folder = params.BASE_DIR / params.DATA_FOLDER / participant_id
         expected = [folder / f"{stem}.csv" for stem in save_data.CSV_COLUMNS]
         expected += [folder / "consent.json", folder / "fatigue.json"]
+        expected.append(folder / "surprise_prediction.json")
         if any(path.exists() for path in expected):
             raise FileExistsError(f"Existing experiment data for participant {participant_id}")
     else:
@@ -253,11 +275,17 @@ def main():
         results = run_main_urn_rounds(win, participant_id, writer)
         total_points = sum(result["block_earnings"] for result in results)
         show_total_reward(win, total_points)
-        # 5. Post-experiment fatigue
+        
+        # 5. Surprise-ball question
+        surprise_task.run_surprise_question(
+            win, participant_id, test_mode=test_mode
+        )
+        # 6. Final fatigue question
         fatigue_after = fatigue_task.ask_fatigue(win)
         fatigue_task.save_fatigue_response(
             participant_id, "after_main", fatigue_after, test_mode
         )
+
 
         # 6. IQ questionnaire (must accept and reuse win, participant, test_mode)
         import iq_task

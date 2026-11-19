@@ -14,6 +14,11 @@ N_ROUNDS = 2
 # 3 staircase blocks, each containing 6 rounds
 ROUNDS_PER_BLOCK = 6
 N_BLOCKS = N_ROUNDS // ROUNDS_PER_BLOCK
+
+#Explanation sizes
+TITLE_HEIGHT = 0.055
+BODY_HEIGHT = 0.032
+
 # -----------------------------------------------------------------------------
 # Monetary rewards
 # -----------------------------------------------------------------------------
@@ -41,7 +46,7 @@ RANDOM_PROBABILITY = (
 
 N_RANDOM_DRAWS =(
     N_TRIALS_PER_ROUND
-    - round(
+    - int(
         N_TRIALS_PER_ROUND
         * PATTERN_PROBABILITY
     )
@@ -116,7 +121,7 @@ EXPERIMENT_NAME = "k-cycle-pretty-urn-task"
 
 WINDOW_SIZE = [1920, 1080]
 FULLSCREEN = True
-SCREEN_INDEX = 1
+SCREEN_INDEX = 0
 
 BACKGROUND_COLOR = "lightgrey"
 
@@ -205,7 +210,7 @@ TRAINING_INSTRUCTIONS = (
 
 URN_INSTRUCTIONS = (
     f"Each round has {N_TRIALS_PER_ROUND} balls that are either blue (B) or magenta (M).\n"
-    f"Exactly {N_RANDOM_DRAWS} draws are flipped; the others follow a sequence.\n\n\n\n"
+    f"Exactly {N_RANDOM_DRAWS} are surprise balls; the others follow a sequence.\n\n\n\n"
     "Press SPACE to continue."
 )
 
@@ -458,10 +463,10 @@ FEEDBACK_BALLS_PER_ROW = 10
 #####STAIRCASE PARAMETERS#####
 # ONE shared staircase for all known/unknown conditions.
 # 20 trials x 4 points = 80-point maximum possible variable reward.
-STAIRCASE_INITIAL_VALUE = 40
+STAIRCASE_INITIAL_VALUE = round(MAX_AMBIGUOUS_REWARD*0.7)
 STAIRCASE_MIN_VALUE = 0
 STAIRCASE_MAX_VALUE = MAX_AMBIGUOUS_REWARD
-STAIRCASE_STEP_SIZES = (20, 10, 5)
+STAIRCASE_STEP_SIZES = (4,8)
 
 # Opt in to the separate guided practice before the 18 actual blocks.
 RUN_PRACTICE_BEFORE_MAIN = True

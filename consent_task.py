@@ -1,11 +1,11 @@
-"""Six-page informed consent for the urn experiment.
+"""Four-page informed consent for the urn experiment.
 
-The participant information below reproduces the wording supplied by the
-researcher. Review and obtain approval before collecting participant data.
+The participant-information and declaration wording below are supplied by the
+researcher; only paragraph grouping and on-screen layout have been changed.
 
-SPACE or ENTER advances information pages; BACKSPACE goes back.
-On the final page, SPACE or mouse click toggles the checkbox, and ENTER
-confirms only when checked. ESC declines at any point.
+SPACE / ENTER advances information pages, BACKSPACE goes back.
+On the final page, ENTER confirms participation; ESC declines at any point.
+No mouse interaction or checkbox is required.
 """
 
 import json
@@ -15,26 +15,177 @@ from psychopy import core, event, visual
 
 import urn_params as params
 
-CONSENT_VERSION = "draft-2026-11-10-six-pages-colored-subtitles"
+CONSENT_VERSION = "draft-2026-11-14-four-pages-enter-confirmation"
 
-# Text is divided at paragraph / section boundaries; wording is unchanged.
-# HTML space entities and Markdown emphasis from the supplied message are
-# represented as ordinary displayed spaces/text.
+# The declaration is deliberately kept in its own variable, so the exact
+# agreement acknowledged by ENTER can be identified and saved separately.
+DECLARATION_AGREEMENT_TEXT = (
+    "I have read the explanations regarding the experiment and I hereby agree "
+    "to participate in the \"Guess the ball\" experiment."
+)
+
+DECLARATION_DATA_TEXT = (
+    "I agree that any data which is collected in the course of the experiment "
+    "will be analysed for scientific purposes and will be stored in anonymized "
+    "form. I am aware that my participation is voluntary and that I can "
+    "withdraw from participation at any time and without giving reasons.\n\n\n"
+    "Press ENTER to confirm your agreement and continue with the experiment."
+)
+
+# The four pages use the exact wording supplied by the researcher. Line wraps
+# from the source have been removed for easier reading, but words have not been
+# rewritten. Text blocks are separated by blank lines for the display layout.
 CONSENT_PAGES = [
-    "We kindly ask you to read the following explanations carefully and to sign the present declaration of consent before you take part in the study.\n\nStudy Information\n\nThis study is being conducted as part of a Bachelor's thesis at the Department of Humanwissenschaft at Technical University of Darmstadt (TU Darmstadt), under the supervision of Angela Yu and Anais Mignot.\n\nResearcher: Giovana Mota Moraes\n\nSupervisor: Angela Yu\n\nDepartment: Humanwissenschaft\n\nInstitution: TU Darmstadt\n\nSubject of the experiment\n\nThis study investigates how people make decisions and process information in different situations. Participants will complete a series of computer-based tasks involving choices and guesses, followed by questionnaires assessing emotional processing and reasoning abilities. The study aims to better understand decision-making processes and how they may relate to individual differences.",
-    "Process of the study/the experiment\n\nThe experiment will be conducted on a computer and consists of four main parts.\n\n•  First, participants will receive instructions explaining the experimental task, followed by practice trials to familiarize themselves with the procedure.\n\n•  Next, participants will complete the main experimental task, which involves making repeated choices and guesses based on information presented on the screen. Participants will observe sequences of colored balls and predict subsequent outcomes. They will receive feedback on their performance and the points earned throughout the task.\n\n•  After completing the main task, participants will answer questions about their subjective experience during the experiment, including their perceived effort, confidence in their performance, and perceived difficulty of the task.\n\n•  Finally, participants will complete two questionnaires. The first consists of questions assessing cognitive reasoning abilities. The second is the Toronto Alexithymia Scale (TAS-20), which assesses aspects of emotional processing.\n\n•  Throughout the experiment, participants' choices, guesses, questionnaire responses, and reaction times will be recorded for subsequent analysis.",
-    "Duration and compensation for participation\n\nParticipation in the experiment will require approximately 75-90 minutes. Each participant will be compensated with an amount of x Euro resp. x hours as a test subject will be testified.\n\nPossible benefit of the study/the experiment\n\nThis study aims to contribute to a better understanding of how people make decisions and process information in different situations. By examining participants' responses to computer-based tasks and questionnaires, the study seeks to explore general aspects of decision-making and individual differences. The findings may contribute to future research on human behavior, cognitive processes, and decision-making.\n\nExperiences and risks which are associated with the participation in the study/the experiment\n\nThe participants of the study do not face any risks which are greater than risks they face in general life.\n\nPrivacy Statement\n\nData processing in the context of this study is performed according to the privacy regulations of the General Data Protection Regulation (GDPR) and the Privacy and Freedom of Information law of the State of Hessen (HDSIG). All data will only be used for the purposes described on the Information Sheet.",
-    'In the context of this study, the following information will be collected:\n\nParticipants’ choices, guesses, reaction times, task performance, perceived effort, confidence, perceived difficulty, and responses to the TAS-20 and cognitive reasoning questionnaire.\n\nPersonal data collected are:\n\nParticipant’s age, sex and field of study.\n\nConfidentiality\n\nAll data collected in course of the study are naturally confidential and will only be used in anonymized form. Demographic data like age or sex do not allow deducing unambiguous information about your person. You will be asked at no point of the study to disclose your name or other unambiguous information about yourself.',
-    'Data storage\n\nCollected data will be stored in the university’s computer and the raw data will be deleted by November 2031. Data will be stored anonymously. Each participant will be assigned a unique numerical code (participant ID), which cannot be traced back to their identity. No directly identifying personal information will be collected.\n\nThis declaration of consent will be stored separately from the data which is collected during the study and will be destroyed by November 2031.\n\nVoluntariness & Rights of the test persons\n\nYour participation in this study is voluntary. You can withdraw from participation at any point of time or withdraw your consent without facing any disadvantages (withdrawal). If you withdraw from participation, no data connected to your person will be stored and already collected data will be deleted.',
-    'You have the right to request which data about your person have been stored and – if necessary – demand that they are either corrected or deleted. You also have the right to restrict processing, the right to object to processing and the right to data portability in a commonly used, structured and machine-readable form.\n\nIn case of dissent you have the right to lodge a complaint with the Data Protection Officer of Hessen (address will be given to you after the experiment).\n\nDeclaration of Consent\n\nI have read the explanations regarding the experiment und I hereby agree to participate in [the above-named study/the above-named experiment.]\n\nI agree that any data which is collected in the course of the experiment will be analyzed for scientific purposes and will be stored in anonymized form. I am aware that my participation is voluntary and that I can withdraw from participation at any time and without giving reasons.',
+    "\n\n".join([
+        "Information Sheet",
+        (
+            "We kindly ask you to read the following explanations carefully and "
+            "to consent to the procedure of the experiment as well as the "
+            "Privacy Statement before you take part in the study."
+        ),
+        "Subject of the study/the experiment",
+        (
+            "The planned experiments aim to study the computational mechanisms "
+            "of cognition. With the help of these experiments, we will gain "
+            "knowledge about key cognitive functions, such as vision, attention, "
+            "learning, decision-making and social cognition and model the "
+            "processes the brain uses to support intelligent behaviour."
+        ),
+        "Process of the study/the experiment",
+        (
+            "During the experiments, participants will be seated in front of a "
+            "computer. The experiments will consist of questionnaires and "
+            "experiments. For each of these participants will receive a brief "
+            "introduction and a detailed explanation of the rules in written "
+            "form on the computer. Participants’ responses via the computer’s "
+            "mouse and keyboard will be recorded. Every 5-10 minutes participants "
+            "can take a short break."
+        ),
+        "Duration and compensation for participation",
+        (
+            "Participation in the study/experiment will require approximately "
+            "60 minutes. Participants can either receive monetary compensation "
+            "or VP-hours. The amount depends on the length of the experiment."
+        ),
+        "Possible benefit of the study/the experiment",
+        (
+            "The experiment is intended to contribute to a better understanding "
+            "of the computational mechanisms giving rise to intelligent "
+            "behaviour in humans."
+        ),
+        (
+            "Experiences and risks which are associated with the participation "
+            "in the study/the experiment"
+        ),
+        (
+            "Participation in this study will not expose the subject to any "
+            "risk beyond the risks of everyday life."
+        ),
+    ]),
+    "\n\n".join([
+        "Privacy Statement",
+        (
+            "Data processing in the context of this study is performed according "
+            "to the privacy regulations of the General Data Protection "
+            "Regulation (GDPR) and the Privacy and Freedom of Information law of "
+            "the State of Hessen (HDSIG). All data will only be used for the "
+            "purposes described in the Information Sheet."
+        ),
+        "In the context of this study, the following information will be collected:",
+        (
+            "Behavioural data in the form of keystrokes or mouse (or trackpad) "
+            "trajectories and clicks, responses to questionnaires"
+        ),
+        "Personal data collected are:",
+        (
+            "Age, gender, subject of study/profession, and depending on the "
+            "study prior diagnosis of ADHD (Attention-deficit/hyperactivity "
+            "disorder) or ASD (Autism spectrum disorder)"
+        ),
+        "Confidentiality",
+        (
+            "All data collected in the course of the study are naturally "
+            "confidential and will only be used in anonymized form. Demographic "
+            "data like age or sex do not allow deducing unambiguous information "
+            "about your person. You will be asked at no point of the study to "
+            "disclose your name or other unambiguous information about yourself."
+        ),
+        "Data storage",
+        (
+            "The data collected with this study are stored on servers of the "
+            "TU Darmstadt, and/or other secure virtual platforms such as "
+            "Hessenbox and GitLab. If it is an online experiment they can also "
+            "be stored temporarily on the experiment hosting platform. Data "
+            "storage takes place in a form which does not allow conclusions "
+            "about your person, meaning that all data will be anonymized. In "
+            "the context of scientific publications, the recorded (anonymised) "
+            "data may also be published. This happens, for example, via the "
+            "servers of the Open Science Foundation (osf.io). In this case, "
+            "the data would be publicly accessible on the Internet."
+        ),
+        (
+            "This declaration of consent will be stored separately from the "
+            "data which is collected during the study and is destroyed after "
+            "5 years."
+        ),
+    ]),
+    "\n\n".join([
+        "Voluntariness & Rights of the test persons",
+        (
+            "Your participation in this study is voluntary. You can withdraw "
+            "from participation at any point of time or withdraw your consent "
+            "without facing any disadvantages (withdrawal). If you withdraw "
+            "from participation, no data connected to your person will be "
+            "stored and already collected data will be deleted. You have the "
+            "right to request which data about your person have been stored "
+            "and – if necessary – demand that they are either corrected or "
+            "deleted. In case of dissent you have the right to lodge a "
+            "complaint with the Data Protection Officer of Hessen (see below "
+            "for address)."
+        ),
+        "The people in charge of data handling of this study:",
+        "Prof. Dr. Angela Yu\nEmail: angela.yu@tu-darmstadt.de",
+        (
+            "For questions about data protection issues please contact the "
+            "data protection officer of TU Darmstadt:"
+        ),
+        "Jan Hansen\nEmail: datenschutz@tu-darmstadt.de",
+        "Data Protection Officer of Hessen in case of data protection issues:",
+        "Email: Poststelle@datenschutz.hessen.de",
+        (
+            "If you have any questions, suggestions or complaints, you are "
+            "welcome to contact either the present supervisor or the "
+            "responsible head of the study:"
+        ),
+        (
+            "Prof. Dr. Angela Yu\n"
+            "Professor for Centre of Cognitive Science & Hessian AI Institute\n"
+            "Phone: +49 6151 16-23964\n"
+            "Email: angela.yu@tu-darmstadt.de"
+        ),
+    ]),
+    "\n\n".join([
+        "Declaration of Consent",
+        DECLARATION_AGREEMENT_TEXT,
+        DECLARATION_DATA_TEXT,
+    ]),
 ]
 
-# Only section subtitles are highlighted; all paragraph wording remains unchanged.
+# Keep the complete text as an independent, verbatim record in consent.json.
+FULL_CONSENT_TEXT = "\n\n".join(CONSENT_PAGES)
+
+# Wider side margins than the original version (height-based PsychoPy units).
+# The original text started at x=-0.72 with wrap width 1.44.
+CONSENT_TEXT_LEFT_X = -0.60
+CONSENT_TEXT_WIDTH = 1.20
+
+# Only section titles are highlighted. All participant-facing content above is
+# unchanged from the source; this set controls visual styling only.
 SUBTITLE_COLOR = "#76232C"
 BODY_COLOR = "#253F62"
 SECTION_SUBTITLES = {
-    "Study Information",
-    "Subject of the experiment",
+    "Information Sheet",
+    "Subject of the study/the experiment",
     "Process of the study/the experiment",
     "Duration and compensation for participation",
     "Possible benefit of the study/the experiment",
@@ -48,30 +199,28 @@ SECTION_SUBTITLES = {
 
 
 def _page_blocks(page_text):
-    """Identify headings without editing the supplied text."""
+    """Identify section headings without modifying any supplied wording."""
     return [(paragraph, paragraph in SECTION_SUBTITLES)
             for paragraph in page_text.split("\n\n")]
 
 
 def _draw_page_body(win, page_text, final_page=False):
-    """Draw each heading and paragraph separately, preserving the source wording.
+    """Draw the consent in separate text blocks and fit them on one screen.
 
-    Use PsychoPy's measured text bounds to place consecutive blocks without
-    overlapping. Slightly reduce spacing/font only if necessary on long pages.
+    Larger side margins are used throughout. Text size is reduced only when
+    necessary to fit a denser page; nothing is omitted from a page.
     """
     blocks = _page_blocks(page_text)
-    start_y = 0.330
-    bottom_y = -0.295 if final_page else -0.390
-    x = -0.72
-    text_width = 1.44
+    start_y = 0.340
+    bottom_y = -0.225 if final_page else -0.382
+    x = CONSENT_TEXT_LEFT_X
+    text_width = CONSENT_TEXT_WIDTH
 
-    # Cache the calculated stimuli for the current draw so a page fits without
-    # relying on approximate character counts or hand-written line breaks.
-    for body_font_size in (0.025, 0.024, 0.023, 0.022, 0.021):
+    for body_font_size in (0.025, 0.024, 0.023, 0.022, 0.021, 0.020, 0.019, 0.018):
         rendered = []
         y = start_y
         for index, (paragraph, is_heading) in enumerate(blocks):
-            height = body_font_size if not is_heading else body_font_size * 1.06
+            height = body_font_size * 1.06 if is_heading else body_font_size
             stim = visual.TextStim(
                 win=win, text=paragraph, pos=(x, y),
                 height=height, wrapWidth=text_width,
@@ -79,14 +228,13 @@ def _draw_page_body(win, page_text, final_page=False):
                 bold=is_heading, alignText="left",
                 anchorHoriz="left", anchorVert="top",
             )
-            # boundingBox is expressed in screen pixels, so convert to
-            # height-units using the shared PsychoPy window dimensions.
+            # PsychoPy reports the bounding box in pixels. Convert to the
+            # height-based window coordinates used by the experiment.
             measured_height = stim.boundingBox[1] / float(win.size[1])
             rendered.append(stim)
             y -= measured_height
             if index < len(blocks) - 1:
                 y -= body_font_size * (0.60 if is_heading else 0.85)
-
         if y >= bottom_y:
             break
 
@@ -95,36 +243,45 @@ def _draw_page_body(win, page_text, final_page=False):
 
 
 def run_consent(win):
-    """Return consent event record; an unchecked final page cannot be confirmed."""
+    """Display four consent pages; ENTER on the final page records agreement.
+
+    ESC declines without saving. BACKSPACE returns to the preceding page.
+    """
+    if not CONSENT_PAGES:
+        raise ValueError("CONSENT_PAGES must contain the approved consent text")
+
     page = 0
-    checked = False
-    last_pressed = False
+    last_page = len(CONSENT_PAGES) - 1
+    consent_ready_at = None
 
     heading = visual.TextStim(
         win, text="", pos=(0, 0.445), height=0.038,
         color="#172b49", bold=True,
     )
     footer = visual.TextStim(
-        win, text="", pos=(0, -0.45), height=0.021,
-        wrapWidth=1.35, color="#576a82",
-    )
-    box = visual.Rect(
-        win, pos=(-0.59, -0.355), width=0.043, height=0.043,
-        fillColor=None, lineColor="#253f62", lineWidth=2,
-    )
-    tick = visual.TextStim(
-        win, text="✓", pos=(-0.59, -0.355), height=0.034,
-        color="#253f62", bold=True,
-    )
-    checkbox_label = visual.TextStim(
-        win, text="I have read the information and agree to participate.",
-        pos=(-0.55, -0.355), height=0.023, wrapWidth=1.18,
-        color="#172b49", alignText="left", anchorHoriz="left",
+        win, text="", pos=(0, -0.452), height=0.020,
+        wrapWidth=1.40, color="#576a82",
     )
 
-    mouse = event.Mouse(win=win)
-    mouse.clickReset()
-    last_page = len(CONSENT_PAGES) - 1
+    # Draw a key graphic directly, so no external image file is necessary.
+    # Adjust these constants if you want the key higher, lower, or larger.
+    KEY_Y = -0.337
+    KEY_WIDTH = 0.220
+    KEY_HEIGHT = 0.060
+    key_shadow = visual.Rect(
+        win, pos=(0.006, KEY_Y - 0.006),
+        width=KEY_WIDTH, height=KEY_HEIGHT,
+        fillColor="#cbd5e1", lineColor=None,
+    )
+    key_face = visual.Rect(
+        win, pos=(0, KEY_Y),
+        width=KEY_WIDTH, height=KEY_HEIGHT,
+        fillColor="#f8fafc", lineColor="#526783", lineWidth=1.6,
+    )
+    key_symbol = visual.TextStim(
+        win, text="ENTER  ↵", pos=(0, KEY_Y),
+        height=0.024, color="#172b49", bold=True,
+    )
 
     def consent_result(consented):
         return {
@@ -133,26 +290,19 @@ def run_consent(win):
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         }
 
-    def render(message=None):
+    def render():
         heading.text = f"Participant information ({page + 1}/{len(CONSENT_PAGES)})"
-        if message is not None:
-            footer.text = message
-        elif page == last_page:
-            footer.text = (
-                "SPACE / click: checkbox     ENTER: agree     "
-                "BACKSPACE: back     ESC: decline"
-            )
-        else:
-            footer.text = (
-                "SPACE / ENTER: next     BACKSPACE: back     ESC: decline"
-            )
+        footer.text = (
+            "ENTER: agree to participate     BACKSPACE: back     ESC: decline"
+            if page == last_page else
+            "SPACE / ENTER: next     BACKSPACE: back     ESC: decline"
+        )
         heading.draw()
         _draw_page_body(win, CONSENT_PAGES[page], final_page=(page == last_page))
         if page == last_page:
-            box.draw()
-            if checked:
-                tick.draw()
-            checkbox_label.draw()
+            key_shadow.draw()
+            key_face.draw()
+            key_symbol.draw()
         footer.draw()
         win.flip()
 
@@ -173,34 +323,27 @@ def run_consent(win):
                 render()
             elif any(k in keys for k in ("space", "return", "num_enter")):
                 page += 1
+                if page == last_page:
+                    # A keypress used to advance must not also register consent.
+                    consent_ready_at = core.getTime() + 0.45
                 event.clearEvents()
                 render()
         else:
             if "backspace" in keys:
                 page -= 1
+                consent_ready_at = None
                 event.clearEvents()
                 render()
-            elif "space" in keys:
-                checked = not checked
-                render()
             elif any(k in keys for k in ("return", "num_enter")):
-                if checked:
+                if consent_ready_at is None or core.getTime() >= consent_ready_at:
                     return consent_result(True)
-                render("Please check the box before pressing ENTER. ESC: decline")
-
-            pressed = bool(mouse.getPressed()[0])
-            if pressed and not last_pressed:
-                mx, my = mouse.getPos()
-                if -0.63 <= mx <= 0.62 and -0.39 <= my <= -0.32:
-                    checked = not checked
-                    render()
-            last_pressed = pressed
+            # SPACE / mouse clicks intentionally cannot indicate agreement.
 
         core.wait(0.01)
 
 
 def save_consent_record(participant_info, consent, test_mode=False):
-    """Save minimal participant fields with consent proof, or print in test mode."""
+    """Store the full consent wording and the confirmation in consent.json."""
     record = {
         "participant_id": str(participant_info["participant_id"]),
         "age": participant_info.get("age"),
@@ -208,6 +351,8 @@ def save_consent_record(participant_info, consent, test_mode=False):
         "consented": bool(consent["consented"]),
         "consent_version": consent["consent_version"],
         "consent_timestamp_utc": consent["timestamp_utc"],
+        "consent_text": FULL_CONSENT_TEXT,
+        "declaration_agreement_text": DECLARATION_AGREEMENT_TEXT,
     }
     if test_mode:
         print("TEST MODE — consent record (not saved):", json.dumps(record, ensure_ascii=False))

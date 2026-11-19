@@ -163,7 +163,7 @@ def create_deterministic_urn(urn_name, label, value, k=None,
 
 def assign_urns_to_sides(deterministic_value, ambiguous_condition, k):
     """The two urns have the same task parameters; only payoff differs."""
-    names = random.sample(params.PRETTY_URN_NAMES, 2)
+    names = ["urn_blue", "urn_blue"]
     deterministic_side = random.choice(("left", "right"))
     ambiguous_side = "right" if deterministic_side == "left" else "left"
     sides = {"left": names[0], "right": names[1]}
@@ -223,12 +223,17 @@ def _indicators(win, x, y, filled, total=3, radius=0.008, spacing=0.026):
         circle.draw()
 
 
-def draw_selection_condition_text(win, urn, x_pos):
-    
-    ambiguous = urn["urn_type"] == "ambiguous"
-    y, width = -0.280, 0.53
 
-    # Same colors for both urns
+def draw_selection_condition_text(win, urn, x_pos):
+    """Clean reward description for both urn types."""
+
+    ambiguous = urn["urn_type"] == "ambiguous"
+
+    # Card appearance and position
+    y = -0.280
+    width = 0.53
+    height = 0.190
+
     fill = "#EDF1F5"
     border = "#C4CDD8"
     accent = "#172B49"
@@ -240,29 +245,110 @@ def draw_selection_condition_text(win, urn, x_pos):
             win,
             pos=(x_pos, y),
             width=width,
-            height=0.190,
+            height=height,
             fillColor=fill,
             lineColor=border,
-            lineWidth=1.2
+            lineWidth=1.2,
         )
     )
     rect.draw()
 
-    heading = "MAXIMUM REWARD" if ambiguous else "GUARANTEED REWARD"
-    amount = (f"+4 pts (max {params.MAX_AMBIGUOUS_REWARD:g})" if ambiguous
-              else f"{urn['value']:g} pts")
-    subtitle = ("earn points per correct guess"
-                if ambiguous else "Fixed reward")
-    draw_text(win, heading, (x_pos, y + 0.067), 0.018,
-              color="#475569", bold=True).draw()
-    draw_text(win, amount, (x_pos, y + 0.020), 0.042,
-              color=accent, bold=True).draw()
-    draw_text(win, subtitle, (x_pos, y - 0.020), 0.020,
-              color=accent).draw()
-    draw_text(win, "Pattern length", (x_pos - 0.075, y - 0.060),
-              0.020, wrap_width=0.18, color="#334155").draw()
-    count = int(urn["ambiguous_k"]) if urn["participant_knows_k"] else 0
-    _indicators(win, x_pos + 0.015, y - 0.060, count)
+    # ------------------------------------
+    # Main reward information
+    # ------------------------------------
+    if ambiguous:
+        title = f"Max {params.MAX_AMBIGUOUS_REWARD:g} pts"
+    else:
+        title = f"Guaranteed {urn['value']:g} pts"
+
+    draw_text(
+        win,
+        title,
+        (x_pos, y + 0.02),
+        height=0.038,
+        color=accent,
+        bold=True,
+    ).draw()
+
+    # Only the ambiguous urn has a
+    # points-per-correct-guess description.
+    if ambiguous:
+        subtitle = (
+            f"(+{params.REWARD_PER_CORRECT_GUESS:g} pts "
+            "for each correct guess)"
+        )
+
+        draw_text(
+            win,
+            subtitle,
+            (x_pos, y - 0.015),
+            height=0.021,
+            color="#475569",
+        ).draw()
+
+    # ------------------------------------
+    # Pattern length
+    # ------------------------------------
+    known = bool(urn["participant_knows_k"])
+    count = int(urn["ambiguous_k"]) if known else 0
+
+    pattern_label = (
+        f"Pattern length ({count})"
+        if known else "Pattern length (<4)"
+    )
+
+    pattern_y = y - 0.069
+
+    draw_text(
+        win,
+        pattern_label,
+        (x_pos - 0.095, pattern_y),
+        height=0.020,
+        color="#334155",
+    ).draw()
+
+        
+    if known:
+        # Keep the original filled circles
+        _indicators(
+            win,
+            x_pos + 0.090,
+            pattern_y,
+            count,
+            total=count,
+        )
+
+    else:
+        # Three hollow circles with question marks
+        radius = 0.010
+        spacing = 0.026
+        start_x = x_pos + 0.090
+
+        for i in range(3):
+            circle_x = start_x + i * spacing
+
+            # Hollow circle
+            visual.Circle(
+                win,
+                pos=(circle_x, pattern_y),
+                radius=radius,
+                fillColor=None,
+                lineColor="#94a3b8",
+                lineWidth=1.2,
+                edges=48,
+            ).draw()
+
+            # Question mark inside the circle
+            draw_text(
+                win,
+                "?",
+                (circle_x, pattern_y),
+                height=0.013,
+                color=params.INFO_COLOR,
+                bold=True,
+            ).draw()
+
+
 
 
 def collect_urn_choice(win, urn_assignment):
@@ -327,19 +413,19 @@ def animate_selected_urn_transition(win, selected_urn, selected_side,
 
 def _draw_info(win, selected_urn):
     # ---------------------------------------------------------
-    # Urn type (top row)
+    # Reward type (top row)
     # ---------------------------------------------------------
 
     reward_type = (
-        "Fixed reward"
+        "Guaranteed points"
         if selected_urn["urn_type"] == "deterministic"
-        else "Performance-dependent reward"
+        else "Points per correct guess"
     )
 
     # Left-aligned label
     draw_text(
         win,
-        "Urn type",
+        "Reward type",
         (params.INFO_LABEL_X, params.URN_TYPE_Y),
         height=params.INFO_TEXT_HEIGHT,
         color=params.INFO_COLOR,
@@ -365,7 +451,7 @@ def _draw_info(win, selected_urn):
     # Show the number directly next to the pattern-length label.
     pattern_label = (
         f"Pattern length ({k_count})"
-        if known else "Pattern length (?)"
+        if known else "Pattern length (<4)"
     )
 
     for row, (label, count) in enumerate((
@@ -377,7 +463,8 @@ def _draw_info(win, selected_urn):
         draw_text(win, label, (params.INFO_LABEL_X, y),
                   height=params.INFO_TEXT_HEIGHT, color=params.INFO_COLOR,
                   align_text="left").draw()
-        for i in range(3):
+        total = (count if known else 3) if row == 0 else params.N_RANDOM_DRAWS
+        for i in range(total):
             circle = _cached(win, ("info_ball", row, i),
                              lambda: visual.Circle(win=win,
                                                    pos=(params.INFO_BALL_START_X
@@ -447,7 +534,7 @@ def draw_sequence_feedback(win, sequence):
                     lambda: visual.Circle(win, pos=pos,
                                             radius=params.FEEDBACK_BALL_RADIUS,
                                             fillColor=params.ball_display_color(color),
-                                            lineColor="black", lineWidth=1.5, edges=32))
+                                            lineColor=None, lineWidth=0, edges=32))
         dot.pos = pos
         dot.fillColor = params.ball_display_color(color)
         dot.draw()
@@ -562,7 +649,7 @@ def show_trial_outcome(win, selected_urn, sequence, trial_number, guess,
     win.flip()
     if wait_for_continue:
         event.clearEvents()
-        keys = event.waitKeys(keyList=["space", "escape"])
+        keys = event.waitKeys(keyList=["space", "escape","num_enter","return"])
         if "escape" in keys:
             quit_experiment(win)
     else:
@@ -719,7 +806,7 @@ def show_round_earnings(win, selected_urn, round_results, round_number, total_ro
               height=0.024, color="#576a82").draw()
     win.flip()
     event.clearEvents()
-    keys = event.waitKeys(keyList=["space", "escape"])
+    keys = event.waitKeys(keyList=["space", "escape","num_enter","return"])
     if "escape" in keys:
         quit_experiment(win)
 
@@ -746,12 +833,12 @@ def run_urn_visual_test(round_number=1, total_rounds=1,
     try:
         if round_number == 1:
             draw_text(win,"New parameters", (0, 0.2), #before 0.13
-                      height=0.050, bold=True, color="#172b49").draw()
+                      height=params.TITLE_HEIGHT, bold=True, color="#172b49").draw()
             draw_text(win, params.URN_INSTRUCTIONS, (0, -0.025),
-                      height=0.026, wrap_width=1.18, color="#334155").draw()
+                      height=params.BODY_HEIGHT, wrap_width=1.18, color="#334155").draw()
             win.flip()
             event.clearEvents()
-            keys = event.waitKeys(keyList=["space", "escape"])
+            keys = event.waitKeys(keyList=["space", "escape","num_enter","return"])
             if "escape" in keys:
                 quit_experiment(win)
 
@@ -817,17 +904,11 @@ def run_urn_visual_test(round_number=1, total_rounds=1,
 # -----------------------------------------------------------------------------
 
 
-def update_staircase(staircase, choice, round_number, k_value=None):
+def update_staircase(staircase, choice, round_number, k_value=None, step=None):
     """Update the deterministic reward after each round."""
 
     if choice not in ("ambiguous", "deterministic"):
         raise ValueError("Invalid urn choice")
-
-    block_number = (
-        (round_number - 1) // params.ROUNDS_PER_BLOCK
-    ) + 1
-
-    step = params.STAIRCASE_STEP_SIZES[block_number - 1]
 
     direction = 1 if choice == "ambiguous" else -1
 

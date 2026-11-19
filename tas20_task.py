@@ -5,6 +5,7 @@ from datetime import datetime
 
 import questionnaire_params as params
 import participant_info
+import urn_params
 
 # Set to True when testing: no participant GUI or demographics entry.
 TEST_MODE = True
@@ -36,12 +37,12 @@ def calculate_subscale_scores(responses):
     return subscale_scores
 
 
-def draw_text(win, text, pos, height=0.05, wrap_width=1.4, bold=False):
+def draw_text(win, text, pos, height=0.05, wrap_width=1.4, bold=False, color=None):
     return visual.TextStim(
         win=win,
         text=text,
         pos=pos,
-        color=params.TEXT_COLOR,
+        color=color if color is not None else params.TEXT_COLOR,
         height=height,
         wrapWidth=wrap_width,
         bold=bold,
@@ -180,19 +181,23 @@ def run_tas20(participant=None, win=None, test_mode=None):
         win,
         text="TAS20 Questionnaire",
         pos=(0, 0.24),
-        height=0.048,
-        wrap_width=1.36
+        height=urn_params.TITLE_HEIGHT,
+        wrap_width=1.36,
+        color="#168c55"
     )
     instructions = draw_text(
         win,
         text=(
-            "You will now answer a short questionnaire.\n\n"
-            "For each statement, choose how much you agree or disagree.\n\n"
-            "Use the number row or numpad (1-5) to answer.\nPress SPACE to continue after selecting an answer.\n\n"
+            "\n\nYou will now read 20 statements about yourself.\n\n"
+            "For each statement, indicate how much you agree or disagree "
+            "based on what generally describes you.\n\n"
+            "There are no right or wrong answers. Please answer honestly.\n\n"
+            "Use the number keys (1-5) to select your answer.\n"
+            "Press SPACE to confirm and continue.\n\n"
             "Press SPACE to begin."
         ),
         pos=(0, 0.015),
-        height=0.034,
+        height=urn_params.BODY_HEIGHT,
         wrap_width=1.36
     )
 
