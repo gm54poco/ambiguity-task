@@ -9,7 +9,7 @@ MONITOR_NAME="wahrnehmen_monitor"
 N_TRIALS_PER_ROUND = 20
 
 # 18 rounds in the main experiment
-N_ROUNDS = 2
+N_ROUNDS = 12
 
 # 3 staircase blocks, each containing 6 rounds
 ROUNDS_PER_BLOCK = 6
