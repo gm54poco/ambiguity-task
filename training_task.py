@@ -550,7 +550,7 @@ def _context_hint(win, selected_urn, sequence, trial_results,
                           lineColor='#bdc8d7', lineWidth=1.6).draw()
         text = f'The pattern repeats every {length} ball' + ('.' if length == 1 else 's.')
     else:
-        _text(win, 'Pattern length (<4)', 0.190,
+        _text(win, 'Pattern length (less than 4)', 0.190,
               height=TITLE_HEIGHT, color='#f1f5f9', bold=True).draw()
         for x in (-0.080, 0.0, 0.080):
             visual.Circle(win, pos=(x, 0.065), radius=0.028,
@@ -964,7 +964,7 @@ def _practice_draw_prediction(win, selected_urn, sequence, trial_results,
                    bold=True).draw()
 
     pattern_label = (
-        f"Pattern length ({visible_length})" if known else "Pattern length (<4)"
+        f"Pattern length ({visible_length})" if known else "Pattern length (less than 4)"
     )
     # All conditions show the same surprise-ball label as the newer version.
     info_rows = [
@@ -1294,10 +1294,10 @@ def _practice_block(win, block_number, condition, k,
     surprise_indices = []
     for trial_number, surprise in enumerate(flips, start=1):
         previous = [t['correct'] for t in trials]
-        if trial_number == 1:
-            hint = _hint_for_trial(selected_urn, condition, trial_number)
-            if hint:
-                _context_hint(win, selected_urn, sequence, previous, *hint)
+        #if trial_number == 1:
+            #hint = _hint_for_trial(selected_urn, condition, trial_number)
+            #if hint:
+            #    _context_hint(win, selected_urn, sequence, previous, *hint)
         guess, rt = _practice_collect_prediction(
             win, selected_urn, sequence, previous,
             surprise_indices=surprise_indices)
@@ -1307,15 +1307,15 @@ def _practice_block(win, block_number, condition, k,
             prediction_index=pred_index,
             is_noise_trial=surprise)
         if surprise:
-            if block_number == 1:
-                _surprise_hint(
-                    win,
-                    selected_urn,
-                    sequence,
-                    previous,
-                    predicted,
-                    outcome
-                )
+            #if block_number == 1:
+                #_surprise_hint(
+                #    win,
+                #    selected_urn,
+                #    sequence,
+                #    previous,
+                #    predicted,
+                #    outcome
+                #)
             surprise_indices.append(trial_number - 1)
         sequence.append(outcome)
         correct = guess == outcome

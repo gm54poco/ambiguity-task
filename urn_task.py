@@ -294,7 +294,7 @@ def draw_selection_condition_text(win, urn, x_pos):
 
     pattern_label = (
         f"Pattern length ({count})"
-        if known else "Pattern length (<4)"
+        if known else "Pattern length (less than 4)"
     )
 
     pattern_y = y - 0.069
@@ -451,7 +451,7 @@ def _draw_info(win, selected_urn):
     # Show the number directly next to the pattern-length label.
     pattern_label = (
         f"Pattern length ({k_count})"
-        if known else "Pattern length (<4)"
+        if known else "Pattern length (less than 4)"
     )
 
     for row, (label, count) in enumerate((
